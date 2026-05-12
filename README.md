@@ -124,4 +124,4 @@ go test -v ./...
 
 ## ライセンス
 
-未定。
+[MIT License](LICENSE)
