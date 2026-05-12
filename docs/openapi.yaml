@@ -1,0 +1,723 @@
+openapi: 3.0.3
+info:
+  title: Elevator Simulator API
+  version: 0.1.0
+  description: |
+    エレベーターシミュレータの REST API。
+
+    - 階番号は整数。地下階は負値（例: `B2 = -2`、`1F = 1`）
+    - 全レスポンスは `application/json`、時刻は RFC 3339 (UTC)
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: floor
+    description: フロア視点の API（呼び出しボタン・到着情報）
+  - name: car
+    description: 車内ボタンの API
+  - name: simulation
+    description: シミュレーション制御
+  - name: admin
+    description: 管理 API（運行制御・状態の手動操作）
+
+paths:
+  /floors/{floor}/elevators:
+    get:
+      summary: n 階から見えるエレベーター状態
+      operationId: getVisibleElevators
+      tags: [floor]
+      parameters:
+        - $ref: '#/components/parameters/FloorPath'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FloorElevatorsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /floors/{floor}/hall-calls:
+    parameters:
+      - $ref: '#/components/parameters/FloorPath'
+    post:
+      summary: ホール呼び（上下ボタン押下）
+      description: |
+        受付時に即時割当まで進めるため、新規作成時の `status` は `assigned`。
+        同一 `(floor, direction)` で `waiting` / `assigned` の呼びが既存なら、
+        新規作成せず既存を `200` で返す（冪等）。
+      operationId: pressHallButton
+      tags: [floor]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HallCallCreateRequest'
+      responses:
+        '200':
+          description: 既存呼びを冪等に返却
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HallCall'
+        '201':
+          description: 新規ホール呼び（即時 assigned）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HallCall'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: 全号機が `stopped` / `maintenance` で割当不可
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      summary: 特定階のホール呼び一覧
+      operationId: listFloorHallCalls
+      tags: [floor]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FloorHallCallsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /elevators:
+    get:
+      summary: 全エレベーター一覧
+      operationId: listElevators
+      tags: [admin]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ElevatorsResponse'
+    post:
+      summary: エレベーターを追加
+      operationId: createElevator
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ElevatorCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Elevator'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /elevators/{elevatorId}:
+    parameters:
+      - $ref: '#/components/parameters/ElevatorIdPath'
+    get:
+      summary: エレベーター詳細取得
+      operationId: getElevator
+      tags: [admin]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Elevator'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      summary: エレベーター状態の手動更新（テスト・管理用）
+      operationId: patchElevator
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ElevatorPatchRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Elevator'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /elevators/{elevatorId}/car-calls:
+    parameters:
+      - $ref: '#/components/parameters/ElevatorIdPath'
+    post:
+      summary: 車内行き先ボタン押下
+      operationId: pressCarButton
+      tags: [car]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CarCallCreateRequest'
+      responses:
+        '201':
+          description: 受付
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarCallResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 該当号機が `running` でない等の状態的不可
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /elevators/{elevatorId}/doors/open:
+    parameters:
+      - $ref: '#/components/parameters/ElevatorIdPath'
+    post:
+      summary: ドアを開く
+      operationId: openDoor
+      tags: [admin]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Elevator'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /elevators/{elevatorId}/doors/close:
+    parameters:
+      - $ref: '#/components/parameters/ElevatorIdPath'
+    post:
+      summary: ドアを閉じる
+      operationId: closeDoor
+      tags: [admin]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Elevator'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /elevators/{elevatorId}/stop:
+    parameters:
+      - $ref: '#/components/parameters/ElevatorIdPath'
+    post:
+      summary: 運転停止
+      operationId: stopElevator
+      tags: [admin]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Elevator'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /elevators/{elevatorId}/resume:
+    parameters:
+      - $ref: '#/components/parameters/ElevatorIdPath'
+    post:
+      summary: 運転再開
+      operationId: resumeElevator
+      tags: [admin]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Elevator'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /hall-calls:
+    get:
+      summary: ホール呼び一覧（横断検索）
+      operationId: listHallCalls
+      tags: [admin]
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+          description: |
+            `HallCallStatus` をカンマ区切りで指定して絞り込む。
+            例: `waiting,assigned`
+        - in: query
+          name: floor
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HallCallsResponse'
+
+  /hall-calls/{callId}:
+    parameters:
+      - in: path
+        name: callId
+        required: true
+        schema:
+          type: string
+        example: call-123
+    delete:
+      summary: ホール呼びキャンセル
+      operationId: cancelHallCall
+      tags: [admin]
+      responses:
+        '204':
+          description: No Content
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /simulation/tick:
+    post:
+      summary: シミュレーションを 1 ステップ進める
+      operationId: advanceTick
+      tags: [simulation]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimulationTickResponse'
+
+  /simulation/reset:
+    post:
+      summary: シミュレーション全体をリセット
+      operationId: resetSimulation
+      tags: [simulation]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SimulationResetRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimulationResetResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+components:
+  parameters:
+    FloorPath:
+      in: path
+      name: floor
+      required: true
+      schema:
+        type: integer
+      description: 階番号（地下は負値）
+      example: 5
+    ElevatorIdPath:
+      in: path
+      name: elevatorId
+      required: true
+      schema:
+        type: string
+      example: ev-1
+
+  responses:
+    BadRequest:
+      description: バリデーションエラー
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: 該当リソースなし
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: 状態的に不可な操作
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    Direction:
+      type: string
+      enum: [up, down, idle]
+
+    HallDirection:
+      type: string
+      enum: [up, down]
+      description: ホール呼びの方向。`idle` は許可されない。
+
+    DoorState:
+      type: string
+      enum: [open, opening, closed, closing]
+
+    OperationState:
+      type: string
+      enum: [running, stopped, maintenance]
+
+    HallCallStatus:
+      type: string
+      enum: [waiting, assigned, served, canceled]
+
+    VisibleElevatorStatus:
+      type: string
+      enum: [arrived, approaching, passing, away, unavailable]
+
+    FloorRange:
+      type: object
+      required: [min, max]
+      properties:
+        min:
+          type: integer
+          example: 1
+        max:
+          type: integer
+          example: 10
+
+    Elevator:
+      type: object
+      required:
+        - id
+        - currentFloor
+        - direction
+        - doorState
+        - operationState
+        - floorRange
+        - destinationFloors
+        - assignedHallCalls
+        - doorHoldOpen
+      properties:
+        id:
+          type: string
+          example: ev-1
+        currentFloor:
+          type: integer
+          example: 3
+        direction:
+          $ref: '#/components/schemas/Direction'
+        doorState:
+          $ref: '#/components/schemas/DoorState'
+        operationState:
+          $ref: '#/components/schemas/OperationState'
+        floorRange:
+          $ref: '#/components/schemas/FloorRange'
+        destinationFloors:
+          type: array
+          description: 車内行き先（点灯中ボタン）
+          items:
+            type: integer
+        assignedHallCalls:
+          type: array
+          description: 自エレベーターに割当済みのホール呼び
+          items:
+            $ref: '#/components/schemas/HallCall'
+        doorHoldOpen:
+          type: boolean
+          description: 「開」ボタンによる保持中。true の間は move/自動閉扉なし。
+
+    HallCall:
+      type: object
+      required:
+        - id
+        - floor
+        - direction
+        - status
+        - assignedElevatorId
+        - createdAt
+      properties:
+        id:
+          type: string
+          example: call-123
+        floor:
+          type: integer
+          example: 5
+        direction:
+          $ref: '#/components/schemas/HallDirection'
+        status:
+          $ref: '#/components/schemas/HallCallStatus'
+        assignedElevatorId:
+          type: string
+          nullable: true
+          description: 未割当または canceled 時は null
+          example: ev-1
+        createdAt:
+          type: string
+          format: date-time
+
+    VisibleElevator:
+      type: object
+      required:
+        - id
+        - currentFloor
+        - direction
+        - doorState
+        - operationState
+        - visibleStatus
+      properties:
+        id:
+          type: string
+          example: ev-1
+        currentFloor:
+          type: integer
+        direction:
+          $ref: '#/components/schemas/Direction'
+        doorState:
+          $ref: '#/components/schemas/DoorState'
+        operationState:
+          $ref: '#/components/schemas/OperationState'
+        visibleStatus:
+          $ref: '#/components/schemas/VisibleElevatorStatus'
+
+    FloorElevatorsResponse:
+      type: object
+      required: [floor, elevators]
+      properties:
+        floor:
+          type: integer
+        elevators:
+          type: array
+          items:
+            $ref: '#/components/schemas/VisibleElevator'
+
+    ElevatorsResponse:
+      type: object
+      required: [elevators]
+      properties:
+        elevators:
+          type: array
+          items:
+            $ref: '#/components/schemas/Elevator'
+
+    ElevatorCreateRequest:
+      type: object
+      required: [id, initialFloor]
+      properties:
+        id:
+          type: string
+          example: ev-3
+        initialFloor:
+          type: integer
+          example: 1
+        floorRange:
+          $ref: '#/components/schemas/FloorRange'
+
+    ElevatorPatchRequest:
+      type: object
+      description: 与えたフィールドのみ更新する。
+      properties:
+        currentFloor:
+          type: integer
+        direction:
+          $ref: '#/components/schemas/Direction'
+        doorState:
+          $ref: '#/components/schemas/DoorState'
+        operationState:
+          $ref: '#/components/schemas/OperationState'
+
+    HallCallCreateRequest:
+      type: object
+      required: [direction]
+      properties:
+        direction:
+          $ref: '#/components/schemas/HallDirection'
+
+    FloorHallCallsResponse:
+      type: object
+      required: [floor, calls]
+      properties:
+        floor:
+          type: integer
+        calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/HallCall'
+
+    HallCallsResponse:
+      type: object
+      required: [hallCalls]
+      properties:
+        hallCalls:
+          type: array
+          items:
+            $ref: '#/components/schemas/HallCall'
+
+    CarCallCreateRequest:
+      type: object
+      required: [destinationFloor]
+      properties:
+        destinationFloor:
+          type: integer
+          example: 10
+
+    CarCallResponse:
+      type: object
+      required: [elevatorId, destinationFloor, status]
+      properties:
+        elevatorId:
+          type: string
+          example: ev-1
+        destinationFloor:
+          type: integer
+          example: 10
+        status:
+          type: string
+          enum: [accepted]
+
+    SimulationTickResponse:
+      type: object
+      required: [tick, elevators, events]
+      properties:
+        tick:
+          type: integer
+          description: 直近 reset からの累積 tick 番号
+          example: 42
+        elevators:
+          type: array
+          items:
+            $ref: '#/components/schemas/Elevator'
+        events:
+          type: array
+          description: この tick 以降に発生したドメインイベント（次に SSE が送信するまでの累積）
+          items:
+            $ref: '#/components/schemas/SimulationEvent'
+
+    SimulationEventType:
+      type: string
+      enum:
+        - hall_call.requested
+        - hall_call.served
+        - hall_call.canceled
+        - car_call.requested
+        - elevator.arrived
+        - elevator.state_changed
+
+    SimulationEvent:
+      type: object
+      required: [type, timestamp]
+      description: |
+        type 別に必要なフィールドが異なる。利用側は type を分岐して対応するフィールドだけ参照する。
+      properties:
+        type:
+          $ref: '#/components/schemas/SimulationEventType'
+        timestamp:
+          type: string
+          format: date-time
+        callId:
+          type: string
+        floor:
+          type: integer
+        direction:
+          $ref: '#/components/schemas/HallDirection'
+        elevatorId:
+          type: string
+        from:
+          $ref: '#/components/schemas/OperationState'
+        to:
+          $ref: '#/components/schemas/OperationState'
+
+    ElevatorInit:
+      type: object
+      required: [id, initialFloor]
+      properties:
+        id:
+          type: string
+          example: ev-1
+        initialFloor:
+          type: integer
+          example: 1
+
+    SimulationResetRequest:
+      type: object
+      description: |
+        各フィールドは省略可。省略時はサーバーの既定値で初期化される。
+      properties:
+        floorRange:
+          $ref: '#/components/schemas/FloorRange'
+        elevators:
+          type: array
+          items:
+            $ref: '#/components/schemas/ElevatorInit'
+
+    SimulationResetResponse:
+      type: object
+      required: [status, floorRange, elevators]
+      properties:
+        status:
+          type: string
+          enum: [reset]
+        floorRange:
+          $ref: '#/components/schemas/FloorRange'
+        elevators:
+          type: array
+          items:
+            $ref: '#/components/schemas/ElevatorInit'
+
+    ErrorCode:
+      type: string
+      enum:
+        - INVALID_REQUEST
+        - OUT_OF_RANGE
+        - INVALID_DIRECTION
+        - SAME_FLOOR
+        - ELEVATOR_NOT_FOUND
+        - CALL_NOT_FOUND
+        - INVALID_STATE
+        - INTERNAL
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+              example: floor 25 is outside [-2, 20]

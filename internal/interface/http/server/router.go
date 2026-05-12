@@ -1,0 +1,41 @@
+package server
+
+import (
+	"log/slog"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	"elevator-go/internal/interface/http/oapi"
+)
+
+// handler / sse は外部から注入する（main 側に UseCase 組み立てを集約するため）。
+func NewRouter(handler oapi.ServerInterface, sse http.Handler) (http.Handler, error) {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(RequestLogger(slog.Default()))
+	r.Use(middleware.Recoverer)
+
+	specHandler, err := SpecHandler()
+	if err != nil {
+		return nil, err
+	}
+	r.Get("/openapi.json", specHandler)
+	r.Get("/docs", SwaggerUIHandler())
+	r.Get("/docs/", SwaggerUIHandler())
+
+	r.Get("/events", sse.ServeHTTP)
+
+	oapi.HandlerFromMux(handler, r)
+
+	staticHandler, err := StaticHandler()
+	if err != nil {
+		return nil, err
+	}
+	// API・SSE・Swagger UI で拾われなかったパスは React build を返す。
+	r.NotFound(staticHandler.ServeHTTP)
+
+	return r, nil
+}

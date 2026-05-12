@@ -1,0 +1,24 @@
+.playwright-mcp
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Go build / test
+/elevator-go
+*.exe
+*.test
+*.out
+coverage.*
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log

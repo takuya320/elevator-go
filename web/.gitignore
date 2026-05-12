@@ -1,0 +1,5 @@
+node_modules
+dist
+*.local
+*.tsbuildinfo
+src/api/schema.d.ts

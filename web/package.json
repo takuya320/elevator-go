@@ -1,0 +1,27 @@
+{
+  "name": "elevator-go-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "dev": "vite",
+    "clean": "find ../internal/interface/http/server/webdist -depth -mindepth 1 ! -name .gitignore -delete",
+    "gen:api": "openapi-typescript ../docs/openapi.yaml -o src/api/schema.d.ts",
+    "build": "pnpm run gen:api && pnpm run clean && tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.17.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.7.3",
+    "vite": "^7.1.12"
+  }
+}

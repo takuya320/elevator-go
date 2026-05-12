@@ -1,0 +1,50 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - misspell
+    - revive
+    - unconvert
+  settings:
+    revive:
+      rules:
+        # コメント方針が「WHY のみ・日本語」なので、定型的なコメント強制は外す。
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+  exclusions:
+    rules:
+      - path: internal/interface/http/oapi/api\.gen\.go
+        linters:
+          - errcheck
+          - govet
+          - ineffassign
+          - staticcheck
+          - unused
+          - gocritic
+          - misspell
+          - revive
+          - unconvert
+      - path: gen\.go
+        linters:
+          - revive
+      # テストでは err を捨てる場面が多い (t.Fatalf 直後など)。
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
