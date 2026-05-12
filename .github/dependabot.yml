@@ -16,9 +16,14 @@ updates:
       prefix: chore(deps)
     groups:
       go-minor-patch:
+        applies-to: version-updates
         update-types:
           - minor
           - patch
+      go-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   # フロントエンド (pnpm)
   - package-ecosystem: npm
@@ -36,9 +41,14 @@ updates:
       prefix: chore(deps)
     groups:
       web-minor-patch:
+        applies-to: version-updates
         update-types:
           - minor
           - patch
+      web-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   # GitHub Actions ワークフロー（将来追加した時用に有効化）
   - package-ecosystem: github-actions
@@ -53,3 +63,7 @@ updates:
       - ci
     commit-message:
       prefix: chore(deps)
+    groups:
+      actions-all:
+        patterns:
+          - "*"
