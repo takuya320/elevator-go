@@ -79,6 +79,25 @@ func (u *ResetSimulation) Execute(ctx context.Context, in ResetSimulationInput) 
 		if _, err := bank.AddElevator(eid, elevator.NewFloor(init.InitialFloor)); err != nil {
 			return nil, fmt.Errorf("reset: elevator %s: %w", init.ID, err)
 		}
+		// home floor 指定があれば Patch 経由で範囲チェックしつつ反映する。
+		// 省略時の home は AddElevator で initialFloor が初期値として入っている。
+		patch := elevator.ElevatorPatch{}
+		dirty := false
+		if init.HomeFloor != nil {
+			f := elevator.NewFloor(*init.HomeFloor)
+			patch.HomeFloor = &f
+			dirty = true
+		}
+		if init.AutoReturnEnabled {
+			ar := true
+			patch.AutoReturnEnabled = &ar
+			dirty = true
+		}
+		if dirty {
+			if _, err := bank.PatchElevator(eid, patch); err != nil {
+				return nil, fmt.Errorf("reset: elevator %s config: %w", init.ID, err)
+			}
+		}
 	}
 	if err := u.repo.Save(ctx, bank); err != nil {
 		return nil, err

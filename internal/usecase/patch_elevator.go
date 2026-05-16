@@ -9,11 +9,13 @@ import (
 
 // 全フィールド省略可。指定したものだけ更新する。
 type PatchElevatorInput struct {
-	ElevatorID     string
-	CurrentFloor   *int
-	Direction      *string
-	DoorState      *string
-	OperationState *string
+	ElevatorID        string
+	CurrentFloor      *int
+	Direction         *string
+	DoorState         *string
+	OperationState    *string
+	HomeFloor         *int
+	AutoReturnEnabled *bool
 }
 
 type PatchElevator struct {
@@ -66,7 +68,15 @@ func toDomainPatch(in PatchElevatorInput) (elevator.ElevatorPatch, error) {
 		s := elevator.OperationState(*in.OperationState)
 		p.OperationState = &s
 	}
-	if p.CurrentFloor == nil && p.Direction == nil && p.DoorState == nil && p.OperationState == nil {
+	if in.HomeFloor != nil {
+		f := elevator.NewFloor(*in.HomeFloor)
+		p.HomeFloor = &f
+	}
+	if in.AutoReturnEnabled != nil {
+		p.AutoReturnEnabled = in.AutoReturnEnabled
+	}
+	if p.CurrentFloor == nil && p.Direction == nil && p.DoorState == nil &&
+		p.OperationState == nil && p.HomeFloor == nil && p.AutoReturnEnabled == nil {
 		return p, fmt.Errorf("patch is empty: at least one field must be set")
 	}
 	return p, nil

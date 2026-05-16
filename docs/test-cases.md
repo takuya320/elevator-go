@@ -44,7 +44,9 @@
 - `running, idle, closed, empty` で tick → 何も変わらない
 - `running, idle, closed, schedule={5}` (current=3) で tick → `currentFloor=4`, `direction=up`, `closed`
 - 移動して目的階到達 → `currentFloor=5`, `door=open`, `schedule` から `5` が消える
-- `door=open` で tick → `door=closed`、移動しない（同 tick で動かない）
+- `door=open, dwell>0` で tick → `door=open` のまま、dwell を 1 消費して終了
+- `door=open, dwell=0` で tick → `door=closed`、移動しない（同 tick で動かない）
+- 自動帰還オンで `idle, closed, empty, current!=home` で tick → home を schedule に積み 1 階移動
 - `stopSchedule` が空になった次の tick → `direction=idle`
 - `operationState=stopped` で tick → 状態変化なし
 
@@ -121,8 +123,9 @@ setup: building 1-10, elevator ev-1 at 1F
 1. PressHallButton(5, up)        → ev-1 に割当、schedule={5}
 2. tick × 4                       → ev-1: 5F, door=open, HallCall served
 3. PressCarButton(ev-1, 8)        → schedule={8}
-4. tick × 1                       → door=closed
-5. tick × 3                       → ev-1: 8F, door=open
+4. tick × 1                       → door=open のまま（dwell 消費）
+5. tick × 1                       → door=closed
+6. tick × 3                       → ev-1: 8F, door=open
 ```
 
 ### シナリオ B: 2 号機の振り分け

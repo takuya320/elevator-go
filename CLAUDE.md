@@ -98,6 +98,8 @@ cd web && pnpm run build       # フロントビルド（webdist/ に出力、go
 - **dispatch 失敗時**: 全号機停止などで割当不能なら call を登録しない（無副作用）。HTTP は 409 `INVALID_STATE`。
 - **ドア**: MVP は `open` / `closed` のみ。`opening` / `closing` は OpenAPI 上の enum に残してあるが返さない。
 - **tick の 2 段階**: AdvanceOneTick は「各号機を進める → 開扉中の階に対応する assigned call を served にする」の順。多重遷移を避けるためこの順序。
+- **扉開→閉に 1 tick の dwell**: 到着・同階指定で扉を開けると `doorDwell=1` がセットされ、自動閉扉は dwell 消費の次の tick で起きる（「開いた瞬間に閉まる」を避ける）。`OpenDoor`/`CloseDoor` ボタンは dwell を即時 0 に戻す。
+- **自動帰還（auto-return）**: `Elevator.homeFloor` と `autoReturnEnabled` を号機ごとに持つ。`AdvanceOneTick` で `schedule` 空かつ非ホーム階かつオンなら home を schedule に積み直してフォールスルー（通常の SCAN 経路で移動）。home に到着すると通常通り扉が開いて閉じる。
 - **Locker は単一**: 全 UseCase が同じ instance を共有。tick とリクエストの interleave を防ぐ。
 
 ## やらないこと

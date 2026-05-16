@@ -146,6 +146,8 @@ func (h *Handler) PatchElevator(w http.ResponseWriter, r *http.Request, elevator
 		s := string(*body.OperationState)
 		in.OperationState = &s
 	}
+	in.HomeFloor = body.HomeFloor
+	in.AutoReturnEnabled = body.AutoReturnEnabled
 	out, err := h.deps.PatchElevator.Execute(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
@@ -196,10 +198,15 @@ func (h *Handler) ResetSimulation(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.Elevators != nil {
 			for _, e := range *body.Elevators {
-				in.Elevators = append(in.Elevators, usecase.ElevatorInit{
+				init := usecase.ElevatorInit{
 					ID:           e.Id,
 					InitialFloor: e.InitialFloor,
-				})
+					HomeFloor:    e.HomeFloor,
+				}
+				if e.AutoReturnEnabled != nil {
+					init.AutoReturnEnabled = *e.AutoReturnEnabled
+				}
+				in.Elevators = append(in.Elevators, init)
 			}
 		}
 	}

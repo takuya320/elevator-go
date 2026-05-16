@@ -51,11 +51,25 @@ func elevatorToOAPI(s usecase.ElevatorSnapshot) oapi.Elevator {
 		DestinationFloors: dests,
 		AssignedHallCalls: hallCalls,
 		DoorHoldOpen:      s.DoorHoldOpen,
+		HomeFloor:         s.HomeFloor,
+		AutoReturnEnabled: s.AutoReturnEnabled,
 	}
 }
 
 func elevatorInitToOAPI(s usecase.ElevatorInit) oapi.ElevatorInit {
-	return oapi.ElevatorInit{Id: s.ID, InitialFloor: s.InitialFloor}
+	out := oapi.ElevatorInit{Id: s.ID, InitialFloor: s.InitialFloor}
+	// AutoReturnEnabled は false が既定なので false でもポインタを立てて返す
+	// （クライアントに「明示的に無効化」と読めるよう常に出す）。
+	ar := s.AutoReturnEnabled
+	out.AutoReturnEnabled = &ar
+	if s.HomeFloor != nil {
+		out.HomeFloor = s.HomeFloor
+	} else {
+		// 入力で省略された場合は initialFloor を home として返す（サーバ側の解決結果）。
+		hf := s.InitialFloor
+		out.HomeFloor = &hf
+	}
+	return out
 }
 
 func eventToOAPI(s usecase.EventSnapshot) oapi.SimulationEvent {

@@ -1,5 +1,11 @@
 import type { Elevator, OperationState } from '../types'
-import { closeDoor, openDoor, setOperationState } from '../api'
+import {
+  closeDoor,
+  openDoor,
+  setAutoReturnEnabled,
+  setHomeFloor,
+  setOperationState,
+} from '../api'
 
 export function CarControls({
   elevator,
@@ -45,6 +51,49 @@ export function CarControls({
       </div>
       <DoorControls elevator={elevator} />
       <AdminControls elevator={elevator} />
+      <HomeControls elevator={elevator} />
+    </div>
+  )
+}
+
+function HomeControls({ elevator }: { elevator: Elevator }) {
+  const range = elevator.floorRange
+  const floors: number[] = []
+  for (let f = range.max; f >= range.min; f--) floors.push(f)
+  return (
+    <div className="home-controls">
+      <span className="home-label">自動帰還</span>
+      <div className="home-row">
+        <label className="home-toggle">
+          <input
+            type="checkbox"
+            checked={elevator.autoReturnEnabled}
+            onChange={(ev) =>
+              setAutoReturnEnabled(elevator.id, ev.target.checked).catch((err) =>
+                console.error('setAutoReturnEnabled', err),
+              )
+            }
+          />
+          有効化
+        </label>
+        <label className="home-select">
+          ホーム階
+          <select
+            value={elevator.homeFloor}
+            onChange={(ev) =>
+              setHomeFloor(elevator.id, Number(ev.target.value)).catch((err) =>
+                console.error('setHomeFloor', err),
+              )
+            }
+          >
+            {floors.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
     </div>
   )
 }

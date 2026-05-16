@@ -18,7 +18,9 @@
 | `running, idle, closed, empty`               | `AddDestination(f)` (`f == current`) | `running, idle, open, empty`            | 即時開扉              |
 | `running, *, closed, !empty`                 | `tick`            | `running, up/down, closed, !empty` で 1 階移動 | 到着前              |
 | `running, *, closed, !empty`                 | `tick` (移動後到着) | `running, *, open, schedule\\{f}`        | 開扉、停止予定から削除   |
-| `running, *, open, *`                        | `tick`            | `running, *, closed, *`                 | MVP は 1 tick で閉。schedule 空なら同 tick で direction も idle に戻す（出発方向コミット解除） |
+| `running, *, open, *`                        | `tick` (dwell 残あり) | `running, *, open, *` で dwell-- | 扉開きの直後の tick は dwell を消費して閉じない |
+| `running, *, open, *`                        | `tick` (dwell 0)  | `running, *, closed, *`                 | dwell が尽きたら自動閉扉。schedule 空かつ自動帰還なしなら同 tick で direction も idle に戻す（出発方向コミット解除） |
+| `running, idle, closed, empty`               | `tick` (自動帰還オン & 非ホーム階) | `running, up/down, closed, {homeFloor}` で 1 階移動 | 空き時にホーム階を schedule に積み直す |
 | `running, *, closed, empty`                  | `tick`            | `running, idle, closed, empty`          | 待機                |
 | `stopped`                                    | `tick` / 操作      | 変化なし                                | 一切受け付けない         |
 | `maintenance`                                | 操作              | エラー                                  | API 層で 409         |
@@ -28,9 +30,14 @@
 MVP では 2 値（`open`/`closed`）。後でリッチ化する場合は同じ表に `opening`/`closing` を追加する。
 
 ```text
-closed → open      (到着または同階指定で開扉)
-open   → closed    (次 tick で自動閉扉)
+closed → open      (到着または同階指定で開扉。同時に dwell タイマー = 1 がセットされる)
+open   → open      (dwell が残っていれば dwell-- のみで扉開きを維持)
+open   → closed    (dwell が尽きたら次 tick で自動閉扉)
 ```
+
+「開→閉」までに 1 tick の dwell を挟むことで、扉が開いた直後すぐに閉まる挙動を避ける。
+`OpenDoor`（「開」ボタンによる hold-open）と `CloseDoor` は dwell をリセットして
+即時開閉する（管理操作）。
 
 ### 1.3 HallCall
 
@@ -129,9 +136,12 @@ idle 号機が同階の hall call を受け、`AddDestination(current)` が即�
 ```text
 1. 各 Elevator について Elevator.AdvanceOneTick() を実行
    - operationState != running → no-op
-   - doorState == open         → 閉扉して終了（移動しない）
-   - schedule empty            → idle にして終了
-   - それ以外                    → 次目的階方向に 1 階移動。到着なら schedule から削除して開扉
+   - holdOpen                   → 扉開きのままその tick は何もしない
+   - doorState == open & dwell>0 → dwell を 1 消費し、扉開きのまま終了
+   - doorState == open & dwell=0 → 閉扉して終了（移動しない）
+   - schedule empty (& autoReturn off or at home) → idle にして終了
+   - schedule empty & autoReturn on & 非ホーム階 → home を schedule に積みフォールスルー
+   - それ以外                    → 次目的階方向に 1 階移動。到着なら schedule から削除して開扉（dwell リセット）
 2. ElevatorBank.markServedHallCalls()
    - assigned 状態の HallCall について、割当号機が同階で open → served
 ```
@@ -144,8 +154,8 @@ idle 号機が同階の hall call を受け、`AddDestination(current)` が即�
 |------------|--------|
 | 1 階移動      | 1      |
 | 開扉         | 0（到着 tick で同時に open） |
-| 開状態の維持   | 1      |
-| 閉扉         | 0（次 tick で即 closed） |
+| 開状態の維持   | 1（dwell） |
+| 閉扉         | 1（dwell 経過後の tick で closed） |
 
 ### 4.3 tick の進行方法
 

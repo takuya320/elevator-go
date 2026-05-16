@@ -494,7 +494,7 @@ func TestBank_VisibleElevatorsFrom_RejectsOutOfRange(t *testing.T) {
 //	1. PressHallButton(5, up)  → assigned to ev-1, schedule={5}
 //	2. tick × 4                → ev-1 at 5F, door open, hall call served
 //	3. PressCarButton(ev-1, 8) → schedule={8}
-//	4. tick × 1                → door=closed
+//	4. tick × 2                → dwell 消費 → door=closed
 //	5. tick × 3                → ev-1 at 8F, door open
 func TestBank_ScenarioA_SingleElevatorRoundTrip(t *testing.T) {
 	bank := mkBank(t, 1, 10, elevSpec{"ev-1", 1})
@@ -521,9 +521,14 @@ func TestBank_ScenarioA_SingleElevatorRoundTrip(t *testing.T) {
 	if err := bank.PressCarButton(ElevatorID("ev-1"), NewFloor(8)); err != nil {
 		t.Fatalf("PressCarButton: %v", err)
 	}
+	// dwell tick → 閉扉 tick の 2 段階で扉が閉まる。
+	bank.AdvanceOneTick()
+	if ev.DoorState() != DoorStateOpen {
+		t.Errorf("after dwell tick: door=%s want open", ev.DoorState())
+	}
 	bank.AdvanceOneTick()
 	if ev.DoorState() != DoorStateClosed {
-		t.Errorf("after 1 more tick: door=%s want closed", ev.DoorState())
+		t.Errorf("after close tick: door=%s want closed", ev.DoorState())
 	}
 	for range 3 {
 		bank.AdvanceOneTick()
@@ -619,6 +624,7 @@ func TestBank_AdvanceOneTick_ResetsDirectionOnDoorCloseWhenIdle(t *testing.T) {
 	if ev.Direction() != DirectionUp {
 		t.Fatalf("setup: direction=%s want up", ev.Direction())
 	}
+	bank.AdvanceOneTick() // dwell 消費（扉開きのまま）
 	bank.AdvanceOneTick() // 閉扉 + schedule 空 → idle
 	if ev.Direction() != DirectionIdle {
 		t.Errorf("direction=%s want idle（閉扉と同 tick で idle 戻し）", ev.Direction())

@@ -199,10 +199,12 @@ func canServe(elevatorDir, callDir Direction) bool {
 // 「扉開きで逆方向にコミット中の号機を除外」フィルタが効かなくなり、同階の
 // 逆方向 hall call を即時 serve してしまう。デバッグ目的の操作に限ること。
 type ElevatorPatch struct {
-	CurrentFloor   *Floor
-	Direction      *Direction
-	DoorState      *DoorState
-	OperationState *OperationState
+	CurrentFloor      *Floor
+	Direction         *Direction
+	DoorState         *DoorState
+	OperationState    *OperationState
+	HomeFloor         *Floor
+	AutoReturnEnabled *bool
 }
 
 func (b *ElevatorBank) PatchElevator(id ElevatorID, p ElevatorPatch) (*Elevator, error) {
@@ -213,6 +215,10 @@ func (b *ElevatorBank) PatchElevator(id ElevatorID, p ElevatorPatch) (*Elevator,
 	if p.CurrentFloor != nil && !b.spec.Contains(*p.CurrentFloor) {
 		return nil, fmt.Errorf("%w: floor=%d outside [%d, %d]",
 			ErrInvalidFloor, p.CurrentFloor.Value(), b.spec.Min().Value(), b.spec.Max().Value())
+	}
+	if p.HomeFloor != nil && !b.spec.Contains(*p.HomeFloor) {
+		return nil, fmt.Errorf("%w: home floor=%d outside [%d, %d]",
+			ErrInvalidFloor, p.HomeFloor.Value(), b.spec.Min().Value(), b.spec.Max().Value())
 	}
 	if p.Direction != nil && !p.Direction.IsValid() {
 		return nil, fmt.Errorf("invalid direction: %s", *p.Direction)
@@ -230,6 +236,12 @@ func (b *ElevatorBank) PatchElevator(id ElevatorID, p ElevatorPatch) (*Elevator,
 	if p.OperationState != nil && *p.OperationState != prevState {
 		e.operationState = *p.OperationState
 		b.emit(ElevatorStateChanged{ElevatorID: id, From: prevState, To: *p.OperationState})
+	}
+	if p.HomeFloor != nil {
+		e.setHomeFloor(*p.HomeFloor)
+	}
+	if p.AutoReturnEnabled != nil {
+		e.setAutoReturnEnabled(*p.AutoReturnEnabled)
 	}
 	return e, nil
 }

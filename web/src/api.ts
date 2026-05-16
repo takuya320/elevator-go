@@ -67,3 +67,19 @@ export async function cancelHallCall(callId: string) {
   })
   if (error !== undefined) throw new Error(JSON.stringify(error))
 }
+
+export async function setHomeFloor(elevatorId: string, homeFloor: number) {
+  const { data, error } = await client.PATCH('/elevators/{elevatorId}', {
+    params: { path: { elevatorId } },
+    body: { homeFloor },
+  })
+  return unwrap(data, error)
+}
+
+export async function setAutoReturnEnabled(elevatorId: string, enabled: boolean) {
+  const { data, error } = await client.PATCH('/elevators/{elevatorId}', {
+    params: { path: { elevatorId } },
+    body: { autoReturnEnabled: enabled },
+  })
+  return unwrap(data, error)
+}

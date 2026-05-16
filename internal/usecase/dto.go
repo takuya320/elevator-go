@@ -39,11 +39,15 @@ type ElevatorSnapshot struct {
 	DestinationFloors []int
 	AssignedHallCalls []HallCallSnapshot
 	DoorHoldOpen      bool
+	HomeFloor         int
+	AutoReturnEnabled bool
 }
 
 type ElevatorInit struct {
-	ID           string
-	InitialFloor int
+	ID                string
+	InitialFloor      int
+	HomeFloor         *int // nil の場合 InitialFloor を採用
+	AutoReturnEnabled bool
 }
 
 // EventSnapshot は domain.DomainEvent を JSON 配信向けにフラット化したもの。
@@ -156,5 +160,7 @@ func toElevatorSnapshot(e *elevator.Elevator, bank *elevator.ElevatorBank) Eleva
 		DestinationFloors: floors,
 		AssignedHallCalls: assigned,
 		DoorHoldOpen:      e.HoldOpen(),
+		HomeFloor:         e.HomeFloor().Value(),
+		AutoReturnEnabled: e.AutoReturnEnabled(),
 	}
 }

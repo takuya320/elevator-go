@@ -430,6 +430,8 @@ components:
         - destinationFloors
         - assignedHallCalls
         - doorHoldOpen
+        - homeFloor
+        - autoReturnEnabled
       properties:
         id:
           type: string
@@ -458,6 +460,13 @@ components:
         doorHoldOpen:
           type: boolean
           description: 「開」ボタンによる保持中。true の間は move/自動閉扉なし。
+        homeFloor:
+          type: integer
+          description: 自動帰還の対象階。未指定時は initialFloor が初期値。
+          example: 1
+        autoReturnEnabled:
+          type: boolean
+          description: true の時、空き状態で homeFloor に自動的に戻る。
 
     HallCall:
       type: object
@@ -557,6 +566,11 @@ components:
           $ref: '#/components/schemas/DoorState'
         operationState:
           $ref: '#/components/schemas/OperationState'
+        homeFloor:
+          type: integer
+          description: 自動帰還の対象階。floorRange の範囲外は 400。
+        autoReturnEnabled:
+          type: boolean
 
     HallCallCreateRequest:
       type: object
@@ -669,6 +683,13 @@ components:
         initialFloor:
           type: integer
           example: 1
+        homeFloor:
+          type: integer
+          description: 自動帰還の対象階。未指定時は initialFloor を採用。
+          example: 1
+        autoReturnEnabled:
+          type: boolean
+          description: 自動帰還の有効/無効。既定 false。
 
     SimulationResetRequest:
       type: object
