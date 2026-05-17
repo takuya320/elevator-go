@@ -129,6 +129,163 @@ ElevatorBank (Aggregate Root)
 
 `CarCall` は独立 Entity ではなく、`Elevator.StopSchedule` への追加として表現する（点灯状態は `StopSchedule` に含まれているか否かで決まる）。
 
+### クラス図
+
+```mermaid
+classDiagram
+    direction LR
+
+    namespace AggregateRoot {
+        class ElevatorBank {
+            <<Aggregate Root>>
+            -BuildingSpec spec
+            -map~ElevatorID,Elevator~ elevators
+            -map~HallCallID,HallCall~ hallCalls
+            -DispatchPolicy policy
+            -DomainEvent[] events
+            +PressHallButton(...)
+            +PressCarButton(...)
+            +AdvanceOneTick()
+            +DrainEvents() DomainEvent[]
+        }
+    }
+
+    namespace Entities {
+        class Elevator {
+            <<Entity>>
+            -ElevatorID id
+            -Floor currentFloor
+            -Direction direction
+            -DoorState doorState
+            -OperationState operationState
+            -StopSchedule stopSchedule
+            -int doorDwell
+            -Floor homeFloor
+            -bool autoReturnEnabled
+            +AddDestination(Floor)
+            +AdvanceOneTick()
+            +OpenDoor() / CloseDoor()
+        }
+        class HallCall {
+            <<Entity>>
+            -HallCallID id
+            -Floor floor
+            -Direction direction
+            -HallCallStatus status
+            -ElevatorID? assignedElevatorID
+            +AssignTo(ElevatorID)
+            +MarkServed() / Cancel()
+        }
+    }
+
+    namespace ValueObjects {
+        class Floor {
+            <<Value Object>>
+            -int value
+            +Above() / Below() / Distance()
+        }
+        class BuildingSpec {
+            <<Value Object>>
+            -Floor min
+            -Floor max
+            +Contains() / CanCall()
+        }
+        class StopSchedule {
+            <<Value Object>>
+            -set~Floor~ floors
+            +Add() / Remove() / NextFloor()
+        }
+        class ElevatorID {
+            <<Value Object>>
+        }
+        class HallCallID {
+            <<Value Object>>
+        }
+        class Direction {
+            <<enumeration>>
+            up / down / idle
+        }
+        class DoorState {
+            <<enumeration>>
+            open / closed
+        }
+        class OperationState {
+            <<enumeration>>
+            running / stopped / maintenance
+        }
+        class HallCallStatus {
+            <<enumeration>>
+            waiting / assigned / served / canceled
+        }
+    }
+
+    namespace DomainService {
+        class DispatchPolicy {
+            <<interface>>
+            +SelectElevator(HallCall, Elevator[]) Elevator
+        }
+        class NearestAvailableElevatorPolicy {
+            <<Domain Service>>
+        }
+    }
+
+    namespace Port {
+        class ElevatorBankRepository {
+            <<Repository Port>>
+            +Find(ctx) ElevatorBank
+            +Save(ctx, ElevatorBank)
+        }
+    }
+
+    namespace DomainEvents {
+        class DomainEvent {
+            <<interface>>
+            +EventName() string
+        }
+        class HallCallRequested { <<Event>> }
+        class HallCallServed { <<Event>> }
+        class HallCallCanceled { <<Event>> }
+        class CarCallRequested { <<Event>> }
+        class ElevatorArrived { <<Event>> }
+        class ElevatorStateChanged { <<Event>> }
+    }
+
+    ElevatorBank *-- "1" BuildingSpec
+    ElevatorBank "1" *-- "*" Elevator : elevators
+    ElevatorBank "1" *-- "*" HallCall  : hallCalls
+    ElevatorBank o-- "1" DispatchPolicy
+    ElevatorBank ..> DomainEvent : emits
+
+    Elevator *-- ElevatorID
+    Elevator *-- "currentFloor" Floor
+    Elevator *-- Direction
+    Elevator *-- DoorState
+    Elevator *-- OperationState
+    Elevator *-- StopSchedule
+
+    HallCall *-- HallCallID
+    HallCall *-- Floor
+    HallCall *-- Direction
+    HallCall *-- HallCallStatus
+    HallCall ..> ElevatorID : assignedTo
+
+    StopSchedule o-- "*" Floor
+
+    DispatchPolicy <|.. NearestAvailableElevatorPolicy
+
+    DomainEvent <|.. HallCallRequested
+    DomainEvent <|.. HallCallServed
+    DomainEvent <|.. HallCallCanceled
+    DomainEvent <|.. CarCallRequested
+    DomainEvent <|.. ElevatorArrived
+    DomainEvent <|.. ElevatorStateChanged
+
+    ElevatorBankRepository ..> ElevatorBank : loads/saves
+```
+
+> 集約境界・Entity/VO 区別・Event の派生関係は機械的には拾えないので手書きで意味づけしている。
+> 構造（フィールド・シグネチャ）に変化があったら手で追従する。
+
 ---
 
 ## 4. Aggregate 設計判断
