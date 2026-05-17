@@ -18,16 +18,32 @@ auto-tick の goroutine が裏で回っていて、既定で 1 秒ごとに状�
 
 主な環境変数:
 
-| 変数                      | 既定       | 用途                      |
-| ------------------------- | ---------- | ------------------------- |
-| `ADDR`                    | `:8080`    | リッスンアドレス          |
-| `TICK_INTERVAL_MS`        | `1000`     | auto-tick の間隔          |
-| `FLOOR_MIN` / `FLOOR_MAX` | `1` / `10` | 階数範囲（地下は負値）    |
-| `ELEVATOR_COUNT`          | `2`        | 号機台数                  |
-| `LOG_FORMAT`              | `text`     | `json` で構造化ログ       |
-| `LOG_DEBUG`               | unset      | セットすると DEBUG レベル |
+| 変数                      | 既定       | 用途                                                                |
+| ------------------------- | ---------- | ------------------------------------------------------------------- |
+| `ADDR`                    | `:8080`    | リッスンアドレス                                                    |
+| `TICK_INTERVAL_MS`        | `1000`     | auto-tick の間隔                                                    |
+| `FLOOR_MIN` / `FLOOR_MAX` | `1` / `10` | 階数範囲（地下は負値）                                              |
+| `ELEVATOR_COUNT`          | `2`        | 号機台数                                                            |
+| `LOG_FORMAT`              | `text`     | `json` で構造化ログ                                                 |
+| `LOG_DEBUG`               | unset      | セットすると DEBUG レベル                                           |
+| `CORS_ALLOWED_ORIGINS`    | unset      | frontend を別オリジンに置くときに許可 Origin をカンマ区切りで列挙。`*` で全許可。空なら CORS 無効 |
 
 例えば `FLOOR_MIN=-2 FLOOR_MAX=20 ELEVATOR_COUNT=4 go run .` で地下 2 階〜20 階の 4 号機構成になる。
+
+## Docker
+
+frontend と backend を独立してスケール・デプロイできるように 2 イメージに分けてある。
+
+```bash
+docker compose up -d --build      # build + 起動
+open http://localhost:5173        # UI（nginx 配信）
+curl http://localhost:8080/...    # backend を直接叩く
+docker compose down               # 停止
+```
+
+- **backend** (`Dockerfile.backend`) … Go 静的バイナリを distroless で配信。UI 資産は持たない。`CORS_ALLOWED_ORIGINS` を env で渡す。
+- **frontend** (`Dockerfile.frontend`) … Vite build を `nginx:alpine` で静的配信。`ARG VITE_API_BASE` で backend オリジンを build 時に bundle へ焼き込む。指定なしなら `/`（同一オリジン）にフォールバック。
+- 別ホストへ frontend を撒くときは `docker build --build-arg VITE_API_BASE=https://api.example.com -f Dockerfile.frontend .` の要領で URL を差し替え、backend 側の `CORS_ALLOWED_ORIGINS` にそのオリジンを足す。
 
 ## API
 

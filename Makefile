@@ -1,17 +1,21 @@
-.PHONY: help run build test vet lint fmt gen web check all
+.PHONY: help run build test vet lint fmt gen web check all docker-up docker-down docker-build docker-logs
 
 help:
 	@echo "Targets:"
-	@echo "  run    - go run . (:8080 で起動)"
-	@echo "  build  - go build ./..."
-	@echo "  test   - go test ./..."
-	@echo "  vet    - go vet ./..."
-	@echo "  lint   - golangci-lint run ./..."
-	@echo "  fmt    - golangci-lint fmt ./..."
-	@echo "  gen    - go generate ./... (OpenAPI 再生成)"
-	@echo "  web    - cd web && pnpm run build"
-	@echo "  check  - build + vet + test (完了報告前の確認)"
-	@echo "  all    - web + gen + check"
+	@echo "  run          - go run . (:8080 で起動)"
+	@echo "  build        - go build ./..."
+	@echo "  test         - go test ./..."
+	@echo "  vet          - go vet ./..."
+	@echo "  lint         - golangci-lint run ./..."
+	@echo "  fmt          - golangci-lint fmt ./..."
+	@echo "  gen          - go generate ./... (OpenAPI 再生成)"
+	@echo "  web          - cd web && pnpm run build"
+	@echo "  check        - build + vet + test (完了報告前の確認)"
+	@echo "  all          - web + gen + check"
+	@echo "  docker-build - backend / frontend 両イメージをビルド"
+	@echo "  docker-up    - docker compose up -d --build"
+	@echo "  docker-down  - docker compose down"
+	@echo "  docker-logs  - docker compose logs -f"
 
 run:
 	go run .
@@ -40,3 +44,15 @@ web:
 check: build vet test
 
 all: web gen check
+
+docker-build:
+	docker compose build
+
+docker-up:
+	docker compose up -d --build
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f

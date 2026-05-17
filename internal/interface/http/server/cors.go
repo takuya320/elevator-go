@@ -18,18 +18,26 @@ func CORS(allowed []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
+			originAllowed := false
 			if origin != "" {
 				if wildcard {
 					w.Header().Set("Access-Control-Allow-Origin", "*")
+					originAllowed = true
 				} else if _, ok := set[origin]; ok {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
 					w.Header().Add("Vary", "Origin")
+					originAllowed = true
 				}
 			}
-			// preflight: Access-Control-Request-Method がある OPTIONS だけを CORS preflight と扱う。
-			// 他の OPTIONS は通常のルーティングに渡す。
-			if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+			// preflight 短絡は「許可した Origin の preflight」だけに限定する。
+			// 拒否 Origin / Origin 無しの OPTIONS は通常ルートに流し、必要なら 404/405 を返させる
+			// （ACAO 無しの 204 は仕様バグに見えるし、他用途の OPTIONS を吸ってしまうため）。
+			isPreflight := r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != ""
+			if isPreflight && originAllowed {
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+				// Request-Headers を echo するので、それごとに 204 が変わる → Vary に積む。
+				// CDN/逆プロキシが Origin A の preflight を Origin B に再利用しないため。
+				w.Header().Add("Vary", "Access-Control-Request-Headers")
 				if h := r.Header.Get("Access-Control-Request-Headers"); h != "" {
 					w.Header().Set("Access-Control-Allow-Headers", h)
 				}
