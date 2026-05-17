@@ -1,0 +1,28 @@
+.git
+.github
+.claude
+.vscode
+.idea
+
+# Go ビルド成果物（イメージ内で作り直す）
+/elevator-go
+*.exe
+*.test
+*.out
+coverage.*
+
+# 依存と生成物（イメージ内で再生成）
+web/node_modules
+web/dist
+web/src/api/schema.d.ts
+internal/interface/http/server/webdist/assets
+internal/interface/http/server/webdist/index.html
+internal/interface/http/server/webdist/*.webp
+
+# その他
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+.playwright-mcp

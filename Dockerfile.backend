@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1.7
+
+# Go バイナリのみ。UI は配信しない前提（embed.FS は webdist/.gitignore で空のまま）。
+# 別オリジンの frontend から叩く構成なので CORS_ALLOWED_ORIGINS を env で渡す。
+FROM golang:1.25-alpine AS builder
+WORKDIR /src
+ENV CGO_ENABLED=0 GOOS=linux
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -trimpath -ldflags="-s -w" -o /out/elevator-go .
+
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=builder /out/elevator-go /app/elevator-go
+EXPOSE 8080
+USER nonroot:nonroot
+ENTRYPOINT ["/app/elevator-go"]

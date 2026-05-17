@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -60,7 +61,7 @@ func main() {
 	sse := server.NewSSEHandler(broadcaster, getState)
 	ticker := server.NewAutoTicker(tickInterval, advance, broadcaster)
 
-	router, err := server.NewRouter(server.NewHandler(deps), sse)
+	router, err := server.NewRouter(server.NewHandler(deps), sse, parseCSV(os.Getenv("CORS_ALLOWED_ORIGINS")))
 	if err != nil {
 		slog.Error("init router failed", "err", err)
 		os.Exit(1)
@@ -157,6 +158,22 @@ func envInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+// CORS_ALLOWED_ORIGINS をカンマ区切りで分解。空白除去・空要素切り捨て。
+// "" → nil、"*" → ["*"]、"http://a, http://b" → ["http://a","http://b"]。
+func parseCSV(v string) []string {
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func envDuration(key string, defMs int) time.Duration {

@@ -64,7 +64,7 @@ func newRouter(t *testing.T) http.Handler {
 	bc := server.NewBroadcaster()
 	sse := server.NewSSEHandler(bc, getState)
 
-	router, err := server.NewRouter(server.NewHandler(deps), sse)
+	router, err := server.NewRouter(server.NewHandler(deps), sse, nil)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}

@@ -11,12 +11,14 @@ import (
 )
 
 // handler / sse は外部から注入する（main 側に UseCase 組み立てを集約するため）。
-func NewRouter(handler oapi.ServerInterface, sse http.Handler) (http.Handler, error) {
+// corsOrigins が空なら CORS 無効。frontend を別オリジンに置く構成のときだけ main から渡す。
+func NewRouter(handler oapi.ServerInterface, sse http.Handler, corsOrigins []string) (http.Handler, error) {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(RequestLogger(slog.Default()))
 	r.Use(middleware.Recoverer)
+	r.Use(CORS(corsOrigins))
 
 	specHandler, err := SpecHandler()
 	if err != nil {

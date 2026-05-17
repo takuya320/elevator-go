@@ -7,7 +7,10 @@ import createClient from 'openapi-fetch'
 import type { paths } from './api/schema'
 import type { OperationState } from './types'
 
-const client = createClient<paths>({ baseUrl: '/' })
+// VITE_API_BASE が設定されていれば別オリジン (例: backend を別ホストにデプロイした場合) に向ける。
+// 未設定なら同一オリジンを叩く (embed 配信 / Vite dev server proxy 用)。
+const baseUrl = import.meta.env.VITE_API_BASE?.trim() || '/'
+const client = createClient<paths>({ baseUrl })
 
 function unwrap<T>(data: T | undefined, error: unknown): T {
   if (error !== undefined) throw new Error(JSON.stringify(error))
