@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go generate:*)",
+      "Bash(golangci-lint:*)",
+      "Bash(make:*)",
+      "Bash(pnpm run:*)",
+      "Bash(curl localhost:*)",
+      "Bash(curl http://localhost:*)",
+      "Bash(curl -s http://localhost:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // \"\"'); case \"$f\" in *.go) golangci-lint run \"$(dirname \"$f\")/...\" ;; esac",
+            "timeout": 60,
+            "statusMessage": "golangci-lint (package scope)"
+          }
+        ]
+      }
+    ]
+  }
+}

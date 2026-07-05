@@ -88,8 +88,8 @@ func (e *Elevator) openDoorOnArrival() {
 }
 
 // 自動帰還の設定。homeFloor の範囲チェックは集約 (ElevatorBank) 側で行う前提。
-func (e *Elevator) setHomeFloor(f Floor)         { e.homeFloor = f }
-func (e *Elevator) setAutoReturnEnabled(b bool)  { e.autoReturnEnabled = b }
+func (e *Elevator) setHomeFloor(f Floor)        { e.homeFloor = f }
+func (e *Elevator) setAutoReturnEnabled(b bool) { e.autoReturnEnabled = b }
 
 // 行先 == 現在階のときは schedule に積まずに即座に開扉する。
 // 範囲検証は集約 (ElevatorBank) 側で行う前提。

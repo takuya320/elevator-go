@@ -49,6 +49,8 @@ elevator-go/
 │   └── interface/http/
 │       ├── oapi/                        生成コード (api.gen.go)
 │       └── server/                      handler / router / errors / convert / swagger
+│           ├── cors.go                  CORS_ALLOWED_ORIGINS ベースの CORS middleware
+│           ├── log_middleware.go        リクエストログ middleware
 │           ├── broadcaster.go           SSE 用 pub/sub（バッファ満杯はドロップ）
 │           ├── auto_ticker.go           goroutine: AdvanceTick → broadcast
 │           ├── sse.go                   GET /events: 初期状態 + tick イベント配信
@@ -89,7 +91,7 @@ go generate ./...              # OpenAPI から型・サーバ再生成
 cd web && pnpm run build       # フロントビルド（webdist/ に出力、go embed 経由で配信）
 ```
 
-起動時 env: `ADDR`, `TICK_INTERVAL_MS`, `FLOOR_MIN`, `FLOOR_MAX`, `ELEVATOR_COUNT`, `LOG_FORMAT`, `LOG_DEBUG`
+起動時 env: `ADDR`, `TICK_INTERVAL_MS`, `FLOOR_MIN`, `FLOOR_MAX`, `ELEVATOR_COUNT`, `LOG_FORMAT`, `LOG_DEBUG`, `CORS_ALLOWED_ORIGINS`
 
 ## 設計判断（コードに残せない判断）
 
