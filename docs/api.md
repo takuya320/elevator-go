@@ -34,7 +34,6 @@
 | 400  | `INVALID_REQUEST`     | JSON 不正、必須フィールド欠落                          |
 | 400  | `OUT_OF_RANGE`        | 階が `FloorRange` 外                          |
 | 400  | `INVALID_DIRECTION`   | 最上階で `up` / 最下階で `down` / 不正な向き            |
-| 400  | `SAME_FLOOR`          | 現在階を行き先指定                                  |
 | 404  | `ELEVATOR_NOT_FOUND`  | `elevatorId` 未存在                          |
 | 404  | `CALL_NOT_FOUND`      | `callId` 未存在                              |
 | 409  | `INVALID_STATE`       | 点検中エレベーターへの操作など状態的に不可な操作                   |
@@ -244,7 +243,7 @@ n 階にいる人から見えるエレベーター一覧。
 
 **バリデーション**
 - `destinationFloor` が `FloorRange` 外 → `400 OUT_OF_RANGE`
-- `destinationFloor == currentFloor` → `400 SAME_FLOOR`
+- `destinationFloor == currentFloor` → `201`（schedule には積まず即時開扉。`docs/behavior.md` §5 参照）
 - `operationState != running` → `409 INVALID_STATE`
 
 ---

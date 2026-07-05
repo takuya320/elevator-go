@@ -58,7 +58,7 @@ func (b *ElevatorBank) AddElevator(id ElevatorID, initial Floor) (*Elevator, err
 			ErrInvalidFloor, initial.Value(), b.spec.Min().Value(), b.spec.Max().Value())
 	}
 	if _, exists := b.elevators[id]; exists {
-		return nil, fmt.Errorf("elevator %s already exists", id)
+		return nil, fmt.Errorf("%w: %s", ErrElevatorAlreadyExists, id)
 	}
 	e := NewElevator(id, initial)
 	b.elevators[id] = e
@@ -221,7 +221,13 @@ func (b *ElevatorBank) PatchElevator(id ElevatorID, p ElevatorPatch) (*Elevator,
 			ErrInvalidFloor, p.HomeFloor.Value(), b.spec.Min().Value(), b.spec.Max().Value())
 	}
 	if p.Direction != nil && !p.Direction.IsValid() {
-		return nil, fmt.Errorf("invalid direction: %s", *p.Direction)
+		return nil, fmt.Errorf("%w: %q", ErrInvalidDirection, *p.Direction)
+	}
+	if p.DoorState != nil && !p.DoorState.IsValid() {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidDoorState, *p.DoorState)
+	}
+	if p.OperationState != nil && !p.OperationState.IsValid() {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidOperationState, *p.OperationState)
 	}
 	prevState := e.OperationState()
 	if p.CurrentFloor != nil {

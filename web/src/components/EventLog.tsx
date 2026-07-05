@@ -1,18 +1,21 @@
 import type { SimulationEvent, OperationState } from '../types'
 
-export function EventLog({ events }: { events: SimulationEvent[] }) {
+// id は App 側で振る表示用の連番。イベント自体は一意なキーを持たない。
+export type LogEntry = { id: number; event: SimulationEvent }
+
+export function EventLog({ entries }: { entries: LogEntry[] }) {
   return (
     <div className="event-log">
       <div className="event-log-header">
         <h3>Activity</h3>
-        <span className="event-log-count">{events.length} events</span>
+        <span className="event-log-count">{entries.length} events</span>
       </div>
-      {events.length === 0 ? (
+      {entries.length === 0 ? (
         <p className="event-log-empty">まだイベントがありません</p>
       ) : (
         <ol className="event-log-list">
-          {events.map((e, i) => (
-            <li key={`${e.timestamp}-${i}`}>
+          {entries.map(({ id, event: e }) => (
+            <li key={id}>
               <time>{formatTime(e.timestamp)}</time>
               <span className={`event-tag ${tagClass(e)}`}>{tagLabel(e)}</span>
               <span className="event-msg">{describe(e)}</span>

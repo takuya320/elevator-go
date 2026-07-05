@@ -27,17 +27,26 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+	// subscribe → 初期状態取得の順にすることで、取得と購読開始の隙間の tick を
+	// 取りこぼさない（先に届いた分はチャネルにバッファされる）。
+	id, ch := h.broadcaster.Subscribe()
+	defer h.broadcaster.Unsubscribe(id)
+
+	// SSE ヘッダを書く前に初期状態を確定させる。ヘッダ送信後に失敗すると
+	// 200 の空ストリームになり、EventSource が無言で再接続し続けるため。
+	initial, err := h.initialPayload(r.Context())
+	if err != nil {
+		http.Error(w, "initial state unavailable", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	id, ch := h.broadcaster.Subscribe()
-	defer h.broadcaster.Unsubscribe(id)
-
-	if err := h.writeInitial(r.Context(), w, flusher); err != nil {
-		return
-	}
+	_, _ = fmt.Fprintf(w, "event: tick\ndata: %s\n\n", initial)
+	flusher.Flush()
 
 	for {
 		select {
@@ -53,10 +62,10 @@ func (h *SSEHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *SSEHandler) writeInitial(ctx context.Context, w http.ResponseWriter, flusher http.Flusher) error {
+func (h *SSEHandler) initialPayload(ctx context.Context) ([]byte, error) {
 	out, err := h.getState.Execute(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resp := oapi.SimulationTickResponse{
 		Tick:      out.Tick,
@@ -67,11 +76,5 @@ func (h *SSEHandler) writeInitial(ctx context.Context, w http.ResponseWriter, fl
 	for _, e := range out.Elevators {
 		resp.Elevators = append(resp.Elevators, elevatorToOAPI(e))
 	}
-	payload, err := json.Marshal(resp)
-	if err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintf(w, "event: tick\ndata: %s\n\n", payload)
-	flusher.Flush()
-	return nil
+	return json.Marshal(resp)
 }

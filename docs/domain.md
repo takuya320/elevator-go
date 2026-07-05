@@ -614,11 +614,14 @@ var (
     ErrInvalidElevatorID        = errors.New("invalid elevator id")
     ErrInvalidHallCallDirection = errors.New("invalid hall call direction") // 最上階 up / 最下階 down / idle 等の方向違反
     ErrInvalidDestinationFloor  = errors.New("invalid destination floor")
+    ErrInvalidDirection         = errors.New("invalid direction")           // PATCH の direction 検証
+    ErrInvalidDoorState         = errors.New("invalid door state")          // PATCH の doorState 検証（open / closed のみ許可）
+    ErrInvalidOperationState    = errors.New("invalid operation state")     // PATCH の operationState 検証
     ErrElevatorNotFound         = errors.New("elevator not found")
+    ErrElevatorAlreadyExists    = errors.New("elevator already exists")     // reset 入力の重複 ID
     ErrElevatorNotRunning       = errors.New("elevator is not running")
     ErrNoAvailableElevator      = errors.New("no available elevator")
     ErrInvalidBuildingSpec      = errors.New("invalid building spec")
-    ErrSameFloor                = errors.New("destination is current floor")
 )
 ```
 
@@ -628,9 +631,15 @@ var (
 |------------------------------|-----------------------|-------------|
 | `ErrInvalidFloor` / `ErrInvalidDestinationFloor` | `OUT_OF_RANGE`        | 400         |
 | `ErrInvalidHallCallDirection` | `INVALID_DIRECTION`   | 400         |
-| `ErrSameFloor`                | `SAME_FLOOR`          | 400         |
+| `ErrInvalidDirection`         | `INVALID_REQUEST`     | 400         |
+| `ErrInvalidDoorState`         | `INVALID_REQUEST`     | 400         |
+| `ErrInvalidOperationState`    | `INVALID_REQUEST`     | 400         |
+| `ErrElevatorAlreadyExists`    | `INVALID_REQUEST`     | 400         |
 | `ErrElevatorNotFound`         | `ELEVATOR_NOT_FOUND`  | 404         |
 | `ErrElevatorNotRunning` / `ErrNoAvailableElevator` | `INVALID_STATE`       | 409         |
+
+現在階を行き先指定した Car Call はエラーではなく即時開扉で受け付ける
+（`docs/behavior.md` §5）。専用のエラーコードは持たない。
 
 ---
 

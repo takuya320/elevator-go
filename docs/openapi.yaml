@@ -556,7 +556,10 @@ components:
 
     ElevatorPatchRequest:
       type: object
-      description: 与えたフィールドのみ更新する。
+      description: >-
+        与えたフィールドのみ更新する。
+        doorState で受け付けるのは open / closed のみ（opening / closing は MVP では
+        遷移しない値のため 400 INVALID_REQUEST）。
       properties:
         currentFloor:
           type: integer
@@ -723,7 +726,6 @@ components:
         - INVALID_REQUEST
         - OUT_OF_RANGE
         - INVALID_DIRECTION
-        - SAME_FLOOR
         - ELEVATOR_NOT_FOUND
         - CALL_NOT_FOUND
         - INVALID_STATE

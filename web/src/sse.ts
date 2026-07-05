@@ -6,8 +6,9 @@ export function useSimulationStream(): SimulationState | null {
   const [state, setState] = useState<SimulationState | null>(null)
 
   useEffect(() => {
-    // api.ts と同じ規約: VITE_API_BASE が設定されていれば別オリジンに向ける。
-    const base = import.meta.env.VITE_API_BASE?.replace(/\/$/, '') ?? ''
+    // api.ts と同じ規約: VITE_API_BASE が設定されていれば別オリジンに向ける
+    // （trim も api.ts に合わせる。env に空白が紛れたとき挙動が割れないように）。
+    const base = (import.meta.env.VITE_API_BASE ?? '').trim().replace(/\/$/, '')
     const es = new EventSource(`${base}/events`)
     es.addEventListener('tick', (ev) => {
       try {

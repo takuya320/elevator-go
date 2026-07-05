@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSimulationStream } from './sse'
 import { Building } from './components/Building'
-import { EventLog } from './components/EventLog'
+import { EventLog, type LogEntry } from './components/EventLog'
 import { pressCar, pressHall, resetSimulation } from './api'
-import type { SimulationEvent } from './types'
 
 const MAX_EVENT_LOG = 100
 
@@ -18,11 +17,15 @@ export function App() {
   const [optimisticHall, setOptimisticHall] = useState<Set<string>>(new Set())
   const [optimisticCar, setOptimisticCar] = useState<Map<string, Set<number>>>(new Map())
   // SSE が運ぶ events は「直近の差分」だけ。ログとしての履歴はクライアントで保持する。
-  const [eventLog, setEventLog] = useState<SimulationEvent[]>([])
+  // イベント自体に一意な ID が無いので React key 用の連番をここで振る
+  // （timestamp は同一 tick 内で重複し、配列 index は prepend でずれるため）。
+  const [eventLog, setEventLog] = useState<LogEntry[]>([])
+  const eventSeq = useRef(0)
 
   useEffect(() => {
     if (!state || !state.events || state.events.length === 0) return
-    setEventLog((prev) => [...state.events, ...prev].slice(0, MAX_EVENT_LOG))
+    const stamped = state.events.map((event) => ({ id: eventSeq.current++, event }))
+    setEventLog((prev) => [...stamped, ...prev].slice(0, MAX_EVENT_LOG))
   }, [state])
 
   useEffect(() => {
@@ -31,7 +34,7 @@ export function App() {
       if (prev.size === 0) return prev
       const next = new Set<string>()
       for (const key of prev) {
-        const [floorStr, dir] = key.split('-')
+        const [dir, floorStr] = key.split(':')
         const floor = Number(floorStr)
         const direction = dir as 'up' | 'down'
         const confirmed = state.elevators.some((e) =>
@@ -145,7 +148,7 @@ export function App() {
             onHallPress={onHallPress}
             onCarPress={onCarPress}
           />
-          <EventLog events={eventLog} />
+          <EventLog entries={eventLog} />
         </>
       ) : (
         <p className="loading">接続中…</p>
@@ -154,4 +157,5 @@ export function App() {
   )
 }
 
-export const hallKey = (floor: number, direction: 'up' | 'down') => `${floor}-${direction}`
+// 区切りは ':' 固定。floor 先頭・'-' 区切りだと負数階（地下階）で split が壊れる。
+export const hallKey = (floor: number, direction: 'up' | 'down') => `${direction}:${floor}`

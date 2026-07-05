@@ -387,6 +387,34 @@ func TestHandler_ErrorMapping(t *testing.T) {
 			body:       "not-json-but-string",
 			wantStatus: http.StatusBadRequest, wantCode: "INVALID_REQUEST",
 		},
+		{
+			// opening / closing は API enum 予約のみ。PATCH では受け付けない。
+			name:   "patch reserved doorState → INVALID_REQUEST",
+			method: http.MethodPatch, path: "/elevators/ev-1",
+			body:       map[string]string{"doorState": "opening"},
+			wantStatus: http.StatusBadRequest, wantCode: "INVALID_REQUEST",
+		},
+		{
+			name:   "patch unknown operationState → INVALID_REQUEST",
+			method: http.MethodPatch, path: "/elevators/ev-1",
+			body:       map[string]string{"operationState": "banana"},
+			wantStatus: http.StatusBadRequest, wantCode: "INVALID_REQUEST",
+		},
+		{
+			name:   "patch unknown direction → INVALID_REQUEST",
+			method: http.MethodPatch, path: "/elevators/ev-1",
+			body:       map[string]string{"direction": "sideways"},
+			wantStatus: http.StatusBadRequest, wantCode: "INVALID_REQUEST",
+		},
+		{
+			name:   "reset duplicate elevator id → INVALID_REQUEST",
+			method: http.MethodPost, path: "/simulation/reset",
+			body: map[string]any{"elevators": []map[string]any{
+				{"id": "ev-1", "initialFloor": 1},
+				{"id": "ev-1", "initialFloor": 2},
+			}},
+			wantStatus: http.StatusBadRequest, wantCode: "INVALID_REQUEST",
+		},
 	}
 	type ck struct {
 		Status int

@@ -162,7 +162,14 @@ idle 号機が同階の hall call を受け、`AddDestination(current)` が即�
 | 方式               | MVP   | 備考                                |
 |------------------|------|-----------------------------------|
 | API 手動 (`POST /simulation/tick`) | ✅   | テスト・デバッグ容易                  |
-| 一定間隔の自動進行         | ✗   | 後続。`Clock` インターフェース経由で導入        |
+| 一定間隔の自動進行         | ✅   | `TICK_INTERVAL_MS`（既定 1000ms）。auto-ticker が tick → SSE `/events` へ配信 |
+
+ドメインイベントは tick 時に drain され、その tick を進めた経路にのみ載る。
+auto-ticker の tick は SSE に配信されるが、**手動 `POST /simulation/tick` の
+イベントはその HTTP レスポンスにのみ含まれ、SSE には流れない**（drain 済みのため
+次の auto tick にも現れない）。UI の Activity ログは SSE 経由のイベントだけを
+蓄積するので、auto-ticker 稼働中に手動 tick を叩くとその分のイベントは UI に
+表示されない。デバッグ用途の割り切りであり、仕様。
 
 ---
 

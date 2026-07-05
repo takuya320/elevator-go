@@ -62,7 +62,7 @@ func TestBank_AddElevator(t *testing.T) {
 		{
 			name:  "duplicate id",
 			seed:  []elevSpec{{"ev-1", 1}},
-			addID: "ev-1", addAt: 2, wantErr: errors.New("duplicate"),
+			addID: "ev-1", addAt: 2, wantErr: ErrElevatorAlreadyExists,
 		},
 	}
 	for _, c := range cases {
@@ -76,15 +76,8 @@ func TestBank_AddElevator(t *testing.T) {
 				}
 				return
 			}
-			// 既知エラー型の場合は errors.Is で確認、それ以外は err != nil で十分。
-			if errors.Is(c.wantErr, ErrInvalidFloor) {
-				if !errors.Is(err, ErrInvalidFloor) {
-					t.Errorf("err = %v, want ErrInvalidFloor", err)
-				}
-				return
-			}
-			if err == nil {
-				t.Errorf("expected error, got nil")
+			if !errors.Is(err, c.wantErr) {
+				t.Errorf("err = %v, want %v", err, c.wantErr)
 			}
 		})
 	}
@@ -318,6 +311,55 @@ func TestBank_PatchElevator(t *testing.T) {
 				return ElevatorPatch{OperationState: &v}
 			},
 			wantErr: ErrElevatorNotFound,
+		},
+		{
+			name:    "invalid direction rejected",
+			patchID: "ev-1",
+			buildPatch: func() ElevatorPatch {
+				d := Direction("sideways")
+				return ElevatorPatch{Direction: &d}
+			},
+			wantErr: ErrInvalidDirection,
+		},
+		{
+			name:    "unknown door state rejected",
+			patchID: "ev-1",
+			buildPatch: func() ElevatorPatch {
+				d := DoorState("banana")
+				return ElevatorPatch{DoorState: &d}
+			},
+			wantErr: ErrInvalidDoorState,
+		},
+		{
+			// opening / closing は API enum 予約のみで MVP では受け付けない。
+			name:    "reserved door state rejected",
+			patchID: "ev-1",
+			buildPatch: func() ElevatorPatch {
+				d := DoorStateOpening
+				return ElevatorPatch{DoorState: &d}
+			},
+			wantErr: ErrInvalidDoorState,
+		},
+		{
+			name:    "invalid operation state rejected",
+			patchID: "ev-1",
+			buildPatch: func() ElevatorPatch {
+				s := OperationState("broken")
+				return ElevatorPatch{OperationState: &s}
+			},
+			wantErr: ErrInvalidOperationState,
+		},
+		{
+			// 検証エラー時は他フィールドも書き換わらない（部分適用なし）ことを
+			// currentFloor 併用で確認する。
+			name:    "invalid door state does not partially apply floor",
+			patchID: "ev-1",
+			buildPatch: func() ElevatorPatch {
+				f := NewFloor(5)
+				d := DoorStateClosing
+				return ElevatorPatch{CurrentFloor: &f, DoorState: &d}
+			},
+			wantErr: ErrInvalidDoorState,
 		},
 	}
 	for _, c := range cases {
