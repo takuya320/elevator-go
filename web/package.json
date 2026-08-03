@@ -13,15 +13,15 @@
   },
   "dependencies": {
     "openapi-fetch": "^0.17.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.0.4",
     "openapi-typescript": "^7.13.0",
     "typescript": "^5.7.3",
-    "vite": "^8.0.12"
+    "vite": "^8.2.0"
   }
 }
