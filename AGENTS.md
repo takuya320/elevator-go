@@ -12,7 +12,7 @@
 - **Node 22 / pnpm**（`packageManager: pnpm@10.33.2`、corepack 経由）。
 
 ### 起動・確認の非自明な点
-- backend は API と UI を **同一 :8080** で配信する。`go run .` の前に **`cd web && pnpm run build`** を一度実行しておかないと、embed される UI は placeholder（`internal/interface/http/server/webdist/index.html`）のままで実際の React 画面が出ない。build 出力先 `internal/interface/http/server/webdist/` は placeholder 以外 gitignore 対象。
+- backend は API と UI を **同一 :8080** で配信する。`go run .` の前に **`cd web && pnpm run build`** を一度実行しておかないと実際の React 画面は出ない。未ビルド時（`webdist/index.html` 不在）は `static.go` が `notBuiltHTML`（「UI 未ビルド」の案内 HTML）を返す。build 出力先 `internal/interface/http/server/webdist/` は git 管理対象外で、リポジトリには `.gitignore` のみ追跡されている（コミット済みの placeholder `index.html` は存在しない）。
 - auto-ticker が既定 1 秒ごとに状態を進めるため、`POST /simulation/tick` を叩かなくても状態は勝手に進む。手動 tick と auto-tick が混ざることに注意。
 - 別オリジンで動かす dev 構成（Vite `:5173` → backend `:8080` proxy、`cd web && pnpm run dev`）では backend 側に `CORS_ALLOWED_ORIGINS=http://localhost:5173` が必要（compose もこれを設定している）。単一オリジン（embed 配信）なら CORS 設定は不要。
 - `pnpm install` 時に `Ignored build scripts: esbuild` の警告が出るが、Vite build は問題なく通る（対応不要）。
