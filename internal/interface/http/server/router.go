@@ -15,7 +15,8 @@ import (
 func NewRouter(handler oapi.ServerInterface, sse http.Handler, corsOrigins []string) (http.Handler, error) {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// chi v5.3+: RealIP は IP spoofing 脆弱性で deprecated。クライアント IP を
+	// 読む箇所が無いので外す（必要なら ClientIPFrom* をデプロイ構成に合わせて選ぶ）。
 	r.Use(RequestLogger(slog.Default()))
 	r.Use(middleware.Recoverer)
 	r.Use(CORS(corsOrigins))
