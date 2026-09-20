@@ -55,7 +55,7 @@ elevator-go/
 │           ├── auto_ticker.go           goroutine: AdvanceTick → broadcast
 │           ├── sse.go                   GET /events: 初期状態 + tick イベント配信
 │           ├── static.go                webdist/ を embed.FS で配信
-│           └── webdist/                 React build 出力 (.gitignore で placeholder のみ追跡)
+│           └── webdist/                 React build 出力 (.gitignore のみ追跡)
 ```
 
 ### Web UI / リアルタイム同期
@@ -63,7 +63,7 @@ elevator-go/
 - `EventSource` で `/events` を購読 → tick ごとに React state 更新
 - 複数タブが同じ broadcaster を購読しているので状態は同期する
 - `pnpm run build` の outDir は `../internal/interface/http/server/webdist/`（embed の制約でパッケージ配下にしか置けない）
-- 未ビルド時の placeholder は `webdist/index.html`（コミット済み）
+- 未ビルド時（`webdist/index.html` 不在）は `static.go` の `notBuiltHTML` が案内 HTML を返す。ビルド出力はコミットしない
 - TypeScript 型は **`docs/openapi.yaml` から `openapi-typescript` で生成**（`web/src/api/schema.d.ts`、git 管理外）。`web/src/types.ts` は再 export のみ、API 呼び出しは `openapi-fetch` 経由で path/body/response が型安全。
 - 仕様変更フロー: `docs/openapi.yaml` → `go generate ./...`（Go 側）+ `pnpm run build`（フロント側、build 内で `gen:api` が自動実行）
 
