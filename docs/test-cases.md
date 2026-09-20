@@ -102,6 +102,14 @@
 - 割当済み `HallCall` の階で号機が開扉 → `served` に遷移
 - `served` 後に再度 tick しても多重遷移しない
 
+### 再割当 (`behavior.md` §3.4)
+- 割当先が `stopped` になり他号機が居る → 次 tick でその号機に `assigned` し直し、`StopSchedule` にも積まれる
+- 引き受けられる号機がゼロ → `waiting` に戻るが呼びは残る（`HallCalls()` から消えない）
+- `waiting` のまま tick を重ねても状態は変わらない
+- 号機が `running` に復帰 → 次 tick で再び `assigned`
+- イベント: 再割当時は `HallCallReassigned{ElevatorID: 新号機}`、割当解除時は `ElevatorID` 空。
+  `waiting` 滞留中は毎 tick 発行しない
+
 ### `VisibleElevatorsFrom` (§ `domain.md` §10)
 - 範囲外 floor → `ErrInvalidFloor`
 - `operationState != running` → `unavailable`

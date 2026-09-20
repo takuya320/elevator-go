@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"elevator-go/internal/interface/http/oapi"
 	"elevator-go/internal/usecase"
 )
 
@@ -67,14 +66,6 @@ func (h *SSEHandler) initialPayload(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp := oapi.SimulationTickResponse{
-		Tick:      out.Tick,
-		Elevators: make([]oapi.Elevator, 0, len(out.Elevators)),
-		// 接続直後の初期状態にイベント履歴は含めない（クライアント側でログを蓄積）。
-		Events: []oapi.SimulationEvent{},
-	}
-	for _, e := range out.Elevators {
-		resp.Elevators = append(resp.Elevators, elevatorToOAPI(e))
-	}
-	return json.Marshal(resp)
+	// 接続直後の初期状態にイベント履歴は含めない（クライアント側でログを蓄積）。
+	return json.Marshal(tickResponseToOAPI(out.Tick, out.Elevators, out.HallCalls, nil))
 }

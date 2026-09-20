@@ -777,3 +777,132 @@ func TestBank_ScenarioB_DispatchRouting(t *testing.T) {
 		t.Errorf("status mismatch (-want +got):\n%s", diff)
 	}
 }
+
+func TestBank_AdvanceOneTick_ReassignsCallWhenAssigneeStops(t *testing.T) {
+	bank := mkBank(t, 1, 10, elevSpec{"ev-1", 1}, elevSpec{"ev-2", 10})
+	cid, clock := 0, 0
+	call, _, err := bank.PressHallButton(nextHallCallID(&cid), NewFloor(5), DirectionUp, fixedClock(&clock))
+	if err != nil {
+		t.Fatalf("PressHallButton: %v", err)
+	}
+	if got := *call.AssignedElevatorID(); got != "ev-1" {
+		t.Fatalf("initial assignee = %s want ev-1", got)
+	}
+
+	stopped := OperationStateStopped
+	if _, err := bank.PatchElevator("ev-1", ElevatorPatch{OperationState: &stopped}); err != nil {
+		t.Fatalf("PatchElevator: %v", err)
+	}
+	bank.AdvanceOneTick()
+
+	type state struct {
+		Status        HallCallStatus
+		Assignee      string
+		Ev2HasDestTo5 bool
+	}
+	ev2, _ := bank.Elevator("ev-2")
+	got := state{Status: call.Status(), Ev2HasDestTo5: ev2.HasDestination(NewFloor(5))}
+	if eid := call.AssignedElevatorID(); eid != nil {
+		got.Assignee = string(*eid)
+	}
+	want := state{Status: HallCallStatusAssigned, Assignee: "ev-2", Ev2HasDestTo5: true}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("reassignment mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestBank_AdvanceOneTick_KeepsCallWaitingWhileNoElevatorAvailable(t *testing.T) {
+	bank := mkBank(t, 1, 10, elevSpec{"ev-1", 1})
+	cid, clock := 0, 0
+	call, _, err := bank.PressHallButton(nextHallCallID(&cid), NewFloor(5), DirectionUp, fixedClock(&clock))
+	if err != nil {
+		t.Fatalf("PressHallButton: %v", err)
+	}
+
+	stopped := OperationStateStopped
+	if _, err := bank.PatchElevator("ev-1", ElevatorPatch{OperationState: &stopped}); err != nil {
+		t.Fatalf("PatchElevator: %v", err)
+	}
+	bank.AdvanceOneTick()
+
+	// 応答できる号機が無い間も呼びは消えない（ホールボタンは点灯したまま）。
+	if got, want := call.Status(), HallCallStatusWaiting; got != want {
+		t.Errorf("status = %s want %s", got, want)
+	}
+	if eid := call.AssignedElevatorID(); eid != nil {
+		t.Errorf("assignee = %s want nil", *eid)
+	}
+	if got := len(bank.HallCalls()); got != 1 {
+		t.Fatalf("len(HallCalls()) = %d want 1", got)
+	}
+
+	// 待機中に何 tick 回しても状態は変わらない。
+	bank.AdvanceOneTick()
+	bank.AdvanceOneTick()
+	if got, want := call.Status(), HallCallStatusWaiting; got != want {
+		t.Errorf("status after idle ticks = %s want %s", got, want)
+	}
+
+	// 号機が復帰したら次の tick で拾い直す。
+	running := OperationStateRunning
+	if _, err := bank.PatchElevator("ev-1", ElevatorPatch{OperationState: &running}); err != nil {
+		t.Fatalf("PatchElevator: %v", err)
+	}
+	bank.AdvanceOneTick()
+	if got, want := call.Status(), HallCallStatusAssigned; got != want {
+		t.Errorf("status after resume = %s want %s", got, want)
+	}
+	if eid := call.AssignedElevatorID(); eid == nil || *eid != "ev-1" {
+		t.Errorf("assignee after resume = %v want ev-1", eid)
+	}
+}
+
+func TestBank_DrainEvents_Reassignment(t *testing.T) {
+	bank := mkBank(t, 1, 10, elevSpec{"ev-1", 1}, elevSpec{"ev-2", 10})
+	cid, clock := 0, 0
+	if _, _, err := bank.PressHallButton(nextHallCallID(&cid), NewFloor(5), DirectionUp, fixedClock(&clock)); err != nil {
+		t.Fatalf("PressHallButton: %v", err)
+	}
+	stopped := OperationStateStopped
+	for _, id := range []ElevatorID{"ev-1", "ev-2"} {
+		if _, err := bank.PatchElevator(id, ElevatorPatch{OperationState: &stopped}); err != nil {
+			t.Fatalf("PatchElevator(%s): %v", id, err)
+		}
+	}
+	bank.DrainEvents()
+
+	// 候補ゼロ → 割当解除のイベント（ElevatorID は空）。
+	bank.AdvanceOneTick()
+	unassigned := reassignedEvents(bank.DrainEvents())
+	if len(unassigned) != 1 || unassigned[0].ElevatorID != "" {
+		t.Fatalf("expected 1 unassign event, got %#v", unassigned)
+	}
+
+	// waiting のまま滞留している間はイベントを出し続けない。
+	bank.AdvanceOneTick()
+	if got := reassignedEvents(bank.DrainEvents()); len(got) != 0 {
+		t.Errorf("expected no event while waiting, got %#v", got)
+	}
+
+	// 1 台復帰 → 再割当のイベント（ElevatorID あり）。
+	running := OperationStateRunning
+	if _, err := bank.PatchElevator("ev-2", ElevatorPatch{OperationState: &running}); err != nil {
+		t.Fatalf("PatchElevator: %v", err)
+	}
+	bank.DrainEvents()
+	bank.AdvanceOneTick()
+	got := reassignedEvents(bank.DrainEvents())
+	if len(got) != 1 || got[0].ElevatorID != "ev-2" {
+		t.Fatalf("expected reassign to ev-2, got %#v", got)
+	}
+}
+
+func reassignedEvents(events []DomainEvent) []HallCallReassigned {
+	var out []HallCallReassigned
+	for _, e := range events {
+		if v, ok := e.(HallCallReassigned); ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}

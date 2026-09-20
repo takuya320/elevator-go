@@ -626,7 +626,7 @@ components:
 
     SimulationTickResponse:
       type: object
-      required: [tick, elevators, events]
+      required: [tick, elevators, hallCalls, events]
       properties:
         tick:
           type: integer
@@ -636,6 +636,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Elevator'
+        hallCalls:
+          type: array
+          description: |
+            active（waiting / assigned）なホール呼び。ホールボタンの点灯状態に対応する。
+            割当先の号機が停止すると assigned → waiting に戻るため、号機の
+            assignedHallCalls だけでは点灯を判定できない。
+          items:
+            $ref: '#/components/schemas/HallCall'
         events:
           type: array
           description: この tick 以降に発生したドメインイベント（次に SSE が送信するまでの累積）
@@ -648,6 +656,7 @@ components:
         - hall_call.requested
         - hall_call.served
         - hall_call.canceled
+        - hall_call.reassigned
         - car_call.requested
         - elevator.arrived
         - elevator.state_changed
@@ -671,6 +680,9 @@ components:
           $ref: '#/components/schemas/HallDirection'
         elevatorId:
           type: string
+          description: |
+            hall_call.reassigned では新しい割当先。省略されている場合は
+            受け入れ可能な号機が無く waiting に戻ったことを表す。
         from:
           $ref: '#/components/schemas/OperationState'
         to:

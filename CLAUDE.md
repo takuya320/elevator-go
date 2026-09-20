@@ -96,9 +96,13 @@ cd web && pnpm run build       # フロントビルド（webdist/ に出力、go
 ## 設計判断（コードに残せない判断）
 
 - **配車**: `NearestAvailableElevatorPolicy`。進行方向の整合 → 距離 → idle 優先 → ElevatorID 昇順で決定論。同階の逆方向呼びを背負う号機の除外は policy ではなく集約側 `dispatchCandidates` の責務。
-- **冪等性**: `(floor, direction)` ごとに active な HallCall は 1 つだけ。重複ホール呼びは既存を 200 で返却、新規は 201。- **dispatch 失敗時**: 全号機停止などで割当不能なら call を登録しない（無副作用）。HTTP は 409 `INVALID_STATE`。
+- **冪等性**: `(floor, direction)` ごとに active な HallCall は 1 つだけ。重複ホール呼びは既存を 200 で返却、新規は 201。active = `waiting` / `assigned`。
+- **`waiting` の意味**: 「登録済みだが引き受ける号機が居ない」。新規受付では発生しない（受付時に割当不能なら 409 で登録しない）。再割当に失敗したときだけ現れる。
+- **点灯状態の一次ソース**: tick / SSE レスポンスの `hallCalls`（active な呼び）。`Elevator.assignedHallCalls` は `waiting` を含まないので UI の点灯判定には使わない。
+- **dispatch 失敗時**: 全号機停止などで割当不能なら call を登録しない（無副作用）。HTTP は 409 `INVALID_STATE`。
 - **ドア**: MVP は `open` / `closed` のみ。`opening` / `closing` は OpenAPI 上の enum に残してあるが返さない。
-- **tick の 2 段階**: AdvanceOneTick は「各号機を進める → 開扉中の階に対応する assigned call を served にする」の順。多重遷移を避けるためこの順序。
+- **tick の 3 段階**: AdvanceOneTick は「停止号機が抱えた call を再割当 → 各号機を進める → 開扉中の階に対応する assigned call を served にする」の順。再割当を先頭に置くのは、振り直した号機をその tick から動かすため。残り 2 段階の順序は多重遷移を避けるため。
+- **再割当**: 割当先が非 running になった active call は tick で他号機へ振り直す。候補ゼロなら `waiting` に戻して保持し（呼びは消さない = ボタンは点灯したまま）、復帰・空き次第に拾う。停止号機の `StopSchedule` からは対象階を消さない（car call と由来を区別できないため）。
 - **扉開→閉に 1 tick の dwell**: 到着・同階指定で扉を開けると `doorDwell=1` がセットされ、自動閉扉は dwell 消費の次の tick で起きる（「開いた瞬間に閉まる」を避ける）。`OpenDoor`/`CloseDoor` ボタンは dwell を即時 0 に戻す。
 - **自動帰還（auto-return）**: `Elevator.homeFloor` と `autoReturnEnabled` を号機ごとに持つ。`AdvanceOneTick` で `schedule` 空かつ非ホーム階かつオンなら home を schedule に積み直してフォールスルー（通常の SCAN 経路で移動）。home に到着すると通常通り扉が開いて閉じる。
 - **Locker は単一**: 全 UseCase が同じ instance を共有。tick とリクエストの interleave を防ぐ。

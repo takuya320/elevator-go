@@ -94,15 +94,7 @@ func (h *Handler) AdvanceTick(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	resp := oapi.SimulationTickResponse{
-		Tick:      out.Tick,
-		Elevators: make([]oapi.Elevator, 0, len(out.Elevators)),
-		Events:    eventsToOAPI(out.Events),
-	}
-	for _, e := range out.Elevators {
-		resp.Elevators = append(resp.Elevators, elevatorToOAPI(e))
-	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, tickResponseToOAPI(out.Tick, out.Elevators, out.HallCalls, out.Events))
 }
 
 // Stop / Resume は PatchElevator の薄いラッパー。

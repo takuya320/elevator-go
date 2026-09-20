@@ -44,12 +44,16 @@ open   → closed    (dwell が尽きたら次 tick で自動閉扉)
 ```text
 waiting  → assigned  (DispatchPolicy で割当)
 assigned → served    (割当エレベーターが該当階で開扉)
+assigned → waiting   (割当先が非 running になり、代わりの号機も居ない。§3.4)
 waiting  → canceled  (DELETE /hall-calls/{id})
 assigned → canceled  (同上)
 served   → (不変)
 ```
 
-MVP では `PressHallButton` 内で即時 `assigned` まで進めるため、`waiting` は永続化されない（割当不可なら呼び自体を作らずエラー）。
+`PressHallButton` は受付時に即時 `assigned` まで進めるため、**新規受付で `waiting` になることはない**
+（割当不可なら呼び自体を作らずエラー）。`waiting` が現れるのは登録後に割当先が停止し、
+かつ引き受けられる号機が 1 台も無いときだけ。呼び自体は消さず、号機が復帰・空き次第
+tick で再割当する。
 
 serve 判定では方向は見ない。「同号機が同階の up と down の両方を抱える」事態は
 `dispatchCandidates` のフィルタ（§3.1）で防いでおり、serve 側で重ねて方向を
@@ -120,10 +124,32 @@ idle 号機が同階の hall call を受け、`AddDestination(current)` が即�
 タイミングで、号機の `direction` を呼び方向に確定する。これがその後の §3.1 の
 2 番目のフィルタの判定材料になる。
 
-### 3.4 考慮しないこと（MVP）
+### 3.4 割当先が停止したときの再割当
+
+実機の群管理は号機が休止すると抱えていた呼びを他号機へ振り直す。同じ振る舞いを
+`AdvanceOneTick` の先頭（§4.1 の 1.）で行う。
+
+```text
+active な HallCall のうち、割当先が非 running（または未割当）のものについて:
+  候補あり → AssignTo(新号機) + AddDestination、hall_call.reassigned を発行
+  候補なし → assigned なら waiting に戻し、hall_call.reassigned（elevatorId なし）を発行
+             既に waiting なら何もしない（毎 tick のイベント連打を避ける）
+```
+
+- 呼び自体は消さない。ホールボタンは点灯したままで、号機が復帰・空き次第 tick で拾う
+- 候補の絞り込みは新規受付と同じ `dispatchCandidates` → `DispatchPolicy`（§3.1, §3.2）
+- **停止した号機の `StopSchedule` からは対象階を消さない**。schedule は car call と
+  hall call の由来を区別しないため、消すと同階の car call まで落ちる。結果として
+  復帰後に 1 回だけ余分に停止するが、乗客を取りこぼすより安全側に倒している
+- 受付時に候補ゼロなら従来どおり 409 で呼びを作らない（§3.1）。「受理した呼びは消えない」と
+  「応答できないなら受理しない」を両立させる割り切り
+
+### 3.5 考慮しないこと
 
 - 既存の `StopSchedule` 量（混雑度）
 - ドア開閉中の号機の不利
+- 定員・積載（満員通過）
+- 待ち時間や ETA の最小化（距離を階数差で近似している）
 
 ---
 
@@ -134,7 +160,10 @@ idle 号機が同階の hall call を受け、`AddDestination(current)` が即�
 ### 4.1 1 tick で起きる順序
 
 ```text
-1. 各 Elevator について Elevator.AdvanceOneTick() を実行
+1. ElevatorBank.reassignHallCalls()
+   - 割当先が非 running な active HallCall を振り直す（§3.4）
+   - 号機を動かす前に行うので、新しい割当先はこの tick から動き出す
+2. 各 Elevator について Elevator.AdvanceOneTick() を実行
    - operationState != running → no-op
    - holdOpen                   → 扉開きのままその tick は何もしない
    - doorState == open & dwell>0 → dwell を 1 消費し、扉開きのまま終了
@@ -142,7 +171,7 @@ idle 号機が同階の hall call を受け、`AddDestination(current)` が即�
    - schedule empty (& autoReturn off or at home) → idle にして終了
    - schedule empty & autoReturn on & 非ホーム階 → home を schedule に積みフォールスルー
    - それ以外                    → 次目的階方向に 1 階移動。到着なら schedule から削除して開扉（dwell リセット）
-2. ElevatorBank.markServedHallCalls()
+3. ElevatorBank.markServedHallCalls()
    - assigned 状態の HallCall について、割当号機が同階で open → served
 ```
 

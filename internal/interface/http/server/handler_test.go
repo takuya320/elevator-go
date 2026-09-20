@@ -201,14 +201,15 @@ func TestHandler_FullScenario_HallCallToServed(t *testing.T) {
 	}
 	rec := do(t, h, http.MethodGet, "/floors/5/elevators", nil)
 	body := decode[oapi.FloorElevatorsResponse](t, rec)
-	var ev1 *oapi.VisibleElevator
-	for i := range body.Elevators {
-		if body.Elevators[i].Id == "ev-1" {
-			ev1 = &body.Elevators[i]
+	var ev1 oapi.VisibleElevator
+	found := false
+	for _, e := range body.Elevators {
+		if e.Id == "ev-1" {
+			ev1, found = e, true
 			break
 		}
 	}
-	if ev1 == nil {
+	if !found {
 		t.Fatal("ev-1 not found")
 	}
 	type ck struct {
@@ -469,5 +470,60 @@ func TestHandler_AdminUnimplemented(t *testing.T) {
 	rec := do(t, h, http.MethodGet, "/elevators", nil)
 	if diff := cmp.Diff(http.StatusNotImplemented, rec.Code); diff != "" {
 		t.Errorf("status mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestHandler_AdvanceTick_ReassignsCallWhenAssigneeStops(t *testing.T) {
+	h := newRouter(t)
+	created := decode[oapi.HallCall](t, do(t, h, http.MethodPost, "/floors/5/hall-calls", map[string]string{"direction": "up"}))
+	if created.AssignedElevatorId == nil || *created.AssignedElevatorId != "ev-1" {
+		t.Fatalf("initial assignee = %v want ev-1", created.AssignedElevatorId)
+	}
+	if rec := do(t, h, http.MethodPost, "/elevators/ev-1/stop", nil); rec.Code != http.StatusOK {
+		t.Fatalf("stop status = %d", rec.Code)
+	}
+
+	body := decode[oapi.SimulationTickResponse](t, do(t, h, http.MethodPost, "/simulation/tick", nil))
+	if got := len(body.HallCalls); got != 1 {
+		t.Fatalf("len(HallCalls) = %d want 1", got)
+	}
+	type ck struct {
+		Status   string
+		Assignee string
+		HasEvent bool
+	}
+	got := ck{Status: string(body.HallCalls[0].Status)}
+	if a := body.HallCalls[0].AssignedElevatorId; a != nil {
+		got.Assignee = *a
+	}
+	for _, e := range body.Events {
+		if string(e.Type) == "hall_call.reassigned" {
+			got.HasEvent = true
+		}
+	}
+	want := ck{Status: "assigned", Assignee: "ev-2", HasEvent: true}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("reassignment mismatch (-want +got):\n%s\nevents=%+v", diff, body.Events)
+	}
+}
+
+func TestHandler_AdvanceTick_KeepsHallCallVisibleWhenAllStopped(t *testing.T) {
+	h := newRouter(t)
+	do(t, h, http.MethodPost, "/floors/5/hall-calls", map[string]string{"direction": "up"})
+	for _, id := range []string{"ev-1", "ev-2"} {
+		if rec := do(t, h, http.MethodPost, "/elevators/"+id+"/stop", nil); rec.Code != http.StatusOK {
+			t.Fatalf("stop %s status = %d", id, rec.Code)
+		}
+	}
+
+	body := decode[oapi.SimulationTickResponse](t, do(t, h, http.MethodPost, "/simulation/tick", nil))
+	if got := len(body.HallCalls); got != 1 {
+		t.Fatalf("len(HallCalls) = %d want 1", got)
+	}
+	if got, want := string(body.HallCalls[0].Status), "waiting"; got != want {
+		t.Errorf("status = %s want %s", got, want)
+	}
+	if a := body.HallCalls[0].AssignedElevatorId; a != nil {
+		t.Errorf("assignedElevatorId = %s want null", *a)
 	}
 }

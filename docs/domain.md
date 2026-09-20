@@ -390,6 +390,9 @@ const (
 
 ### HallCallStatus
 
+`waiting` は「登録済みだが引き受ける号機が居ない」状態。新規受付では発生せず、
+割当先が停止して代わりも居ないときだけ現れる（`docs/behavior.md` §1.3, §3.4）。
+
 ```go
 type HallCallStatus string
 
@@ -524,9 +527,14 @@ type ElevatorBank struct {
 ### `AdvanceOneTick` の手続き
 
 ```text
-1. すべての Elevator に AdvanceOneTick を委譲
-2. assigned な HallCall について「割当エレベーターが該当階で開扉」なら MarkServed
+1. reassignHallCalls()
+   割当先が非 running な active HallCall を振り直す。候補が無ければ waiting に戻して保持
+2. すべての Elevator に AdvanceOneTick を委譲
+3. assigned な HallCall について「割当エレベーターが該当階で開扉」なら MarkServed
 ```
+
+1 を号機の移動より先に置くのは、振り直した号機がその tick から動き出せるようにするため。
+詳細と割り切り（停止号機の schedule を消さない理由）は `docs/behavior.md` §3.4。
 
 ---
 
@@ -687,13 +695,16 @@ type DomainEvent interface{ EventName() string }
 type HallCallRequested struct{ CallID HallCallID; Floor Floor; Direction Direction; ElevatorID ElevatorID } // hall_call.requested
 type HallCallServed    struct{ CallID HallCallID; Floor Floor; ElevatorID ElevatorID }                      // hall_call.served
 type HallCallCanceled  struct{ CallID HallCallID }                                                          // hall_call.canceled
+type HallCallReassigned struct{ CallID HallCallID; Floor Floor; Direction Direction; ElevatorID ElevatorID } // hall_call.reassigned
 type CarCallRequested  struct{ ElevatorID ElevatorID; Floor Floor }                                         // car_call.requested
 type ElevatorArrived   struct{ ElevatorID ElevatorID; Floor Floor }                                         // elevator.arrived
 type ElevatorStateChanged struct{ ElevatorID ElevatorID; From, To OperationState }                          // elevator.state_changed
 ```
 
 割当は `HallCallRequested.ElevatorID` に含めるので、`HallCallAssigned` は別イベントにしていない
-（`PressHallButton` が受付と同時に割当まで進める設計のため）。drain は破壊的で、
+（`PressHallButton` が受付と同時に割当まで進める設計のため）。`HallCallReassigned` の
+`ElevatorID` が空文字なら「引き受けられる号機が無く waiting に戻った」ことを表す
+（API では `elevatorId` フィールドごと省略される）。drain は破壊的で、
 手動 tick のイベントはその HTTP レスポンスにのみ現れる（`docs/behavior.md` §4.3）。
 
 ---

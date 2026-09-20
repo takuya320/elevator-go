@@ -420,3 +420,49 @@ func TestResetSimulation_RewindsTickCounter(t *testing.T) {
 		t.Errorf("tick after reset mismatch (-want +got):\n%s", diff)
 	}
 }
+
+func TestAdvanceTick_ExposesActiveHallCallsIncludingWaiting(t *testing.T) {
+	f := setupDefault(t)
+	press := NewPressHallButton(f.repo, f.locker, f.clock, f.idGen)
+	patch := NewPatchElevator(f.repo, f.locker)
+	advance := NewAdvanceTick(f.repo, f.simClk, f.locker, f.clock)
+
+	if _, err := press.Execute(f.ctx, PressHallButtonInput{Floor: 5, Direction: "up"}); err != nil {
+		t.Fatalf("PressHallButton: %v", err)
+	}
+	stopped := "stopped"
+	for _, id := range []string{"ev-1", "ev-2"} {
+		if _, err := patch.Execute(f.ctx, PatchElevatorInput{ElevatorID: id, OperationState: &stopped}); err != nil {
+			t.Fatalf("PatchElevator(%s): %v", id, err)
+		}
+	}
+
+	out, err := advance.Execute(f.ctx)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	// 割当先が全滅しても呼びは HallCalls から消えない（UI の点灯継続に必要）。
+	if got := len(out.HallCalls); got != 1 {
+		t.Fatalf("len(HallCalls) = %d want 1", got)
+	}
+	type ck struct {
+		Floor       int
+		Status      string
+		HasAssignee bool
+	}
+	got := ck{
+		Floor:       out.HallCalls[0].Floor,
+		Status:      out.HallCalls[0].Status,
+		HasAssignee: out.HallCalls[0].AssignedElevatorID != nil,
+	}
+	want := ck{Floor: 5, Status: "waiting", HasAssignee: false}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("waiting hall call mismatch (-want +got):\n%s", diff)
+	}
+	// 号機側の assignedHallCalls からは外れている（waiting は誰のものでもない）。
+	for _, e := range out.Elevators {
+		if got := len(e.AssignedHallCalls); got != 0 {
+			t.Errorf("%s AssignedHallCalls = %d want 0", e.ID, got)
+		}
+	}
+}

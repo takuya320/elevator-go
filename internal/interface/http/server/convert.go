@@ -16,6 +16,33 @@ func hallCallToOAPI(s usecase.HallCallSnapshot) oapi.HallCall {
 	}
 }
 
+func hallCallsToOAPI(calls []usecase.HallCallSnapshot) []oapi.HallCall {
+	out := make([]oapi.HallCall, 0, len(calls))
+	for _, c := range calls {
+		out = append(out, hallCallToOAPI(c))
+	}
+	return out
+}
+
+// handler / auto-ticker / SSE の 3 経路が同じ形を返すため 1 箇所に集約する。
+func tickResponseToOAPI(
+	tick int,
+	elevators []usecase.ElevatorSnapshot,
+	hallCalls []usecase.HallCallSnapshot,
+	events []usecase.EventSnapshot,
+) oapi.SimulationTickResponse {
+	out := oapi.SimulationTickResponse{
+		Tick:      tick,
+		Elevators: make([]oapi.Elevator, 0, len(elevators)),
+		HallCalls: hallCallsToOAPI(hallCalls),
+		Events:    eventsToOAPI(events),
+	}
+	for _, e := range elevators {
+		out.Elevators = append(out.Elevators, elevatorToOAPI(e))
+	}
+	return out
+}
+
 func visibleElevatorToOAPI(s usecase.VisibleElevatorSnapshot) oapi.VisibleElevator {
 	return oapi.VisibleElevator{
 		Id:             s.ID,

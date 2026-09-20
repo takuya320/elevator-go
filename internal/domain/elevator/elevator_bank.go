@@ -9,7 +9,8 @@ import (
 // 集約全体の不変条件:
 //   - 階・方向は BuildingSpec を満たす
 //   - (floor, direction) ごとに active な HallCall は最大 1 つ
-//   - HallCall は running な elevator にのみ割り当てる。失敗時は登録自体を行わない
+//   - HallCall は running な elevator にのみ割り当てる。受付時に割当先が無ければ登録自体を行わない
+//   - 登録後に割当先が非 running になった HallCall は tick で振り直す（不可なら waiting で保持）
 //   - assignedElevatorID は当バンクに存在する elevator を指す
 //
 // 並行不可: usecase.Locker による直列化が前提。
@@ -304,6 +305,8 @@ func (b *ElevatorBank) PressCarButton(eid ElevatorID, dest Floor) error {
 // 各号機を進めた後、open 中の階に対応する assigned な hall call を served にする。
 // 進行と served 判定を別段階に分けることで多重遷移を避ける。
 func (b *ElevatorBank) AdvanceOneTick() {
+	// 号機を進める前に振り直す。この tick 中に新しい割当先が動き出せるようにするため。
+	b.reassignHallCalls()
 	// tick 内で扉が open に遷移した号機を arrived として記録。
 	for _, e := range b.sortedElevators() {
 		prevDoor := e.DoorState()
@@ -333,6 +336,54 @@ func (b *ElevatorBank) AdvanceOneTick() {
 			b.emit(HallCallServed{CallID: c.ID(), Floor: c.Floor(), ElevatorID: *eid})
 		}
 	}
+}
+
+// 割当先が非 running になった呼びを他号機へ振り直す。実機の群管理は号機が休止すると
+// 抱えていた呼びを他号機へ再配車するため、停止した号機に呼びが張り付いて永久に
+// 応答されない状態を避ける。受け入れられる号機が無い間は waiting で保持し、
+// 次 tick 以降に再試行する（呼び自体は消さない = ホールボタンは点灯し続ける）。
+//
+// 停止した号機の stopSchedule からは対象階を消さない。schedule は car call と
+// hall call の由来を区別しないため、消すと同階の car call まで落ちてしまう。
+// 結果として復帰後に 1 回だけ余分に停止するが、乗客を取りこぼすより安全側。
+func (b *ElevatorBank) reassignHallCalls() {
+	for _, c := range b.HallCalls() {
+		if !c.IsActive() || b.assigneeIsRunning(c) {
+			continue
+		}
+		candidate, err := b.policy.SelectElevator(c, b.dispatchCandidates(c.Floor(), c.Direction()))
+		if err != nil {
+			// 候補ゼロ。assigned → waiting の遷移が起きたときだけ通知する
+			// （waiting のまま滞留している呼びで毎 tick イベントを出さない）。
+			if c.Unassign() {
+				b.emit(HallCallReassigned{CallID: c.ID(), Floor: c.Floor(), Direction: c.Direction()})
+			}
+			continue
+		}
+		if err := c.AssignTo(candidate.ID()); err != nil {
+			// 防御的: IsActive を確認済みなので通常は失敗しない。
+			continue
+		}
+		if err := candidate.AddDestination(c.Floor()); err != nil {
+			// 防御的: SelectElevator は running しか返さない。
+			continue
+		}
+		b.emit(HallCallReassigned{
+			CallID:     c.ID(),
+			Floor:      c.Floor(),
+			Direction:  c.Direction(),
+			ElevatorID: candidate.ID(),
+		})
+	}
+}
+
+func (b *ElevatorBank) assigneeIsRunning(c *HallCall) bool {
+	eid := c.AssignedElevatorID()
+	if eid == nil {
+		return false
+	}
+	e, ok := b.elevators[*eid]
+	return ok && e.IsRunning()
 }
 
 func (b *ElevatorBank) VisibleElevatorsFrom(viewer Floor) ([]VisibleElevator, error) {

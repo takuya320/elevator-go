@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"elevator-go/internal/interface/http/oapi"
 	"elevator-go/internal/usecase"
 )
 
@@ -34,15 +33,7 @@ func (t *AutoTicker) Run(ctx context.Context) {
 				slog.Error("auto tick failed", "err", err)
 				continue
 			}
-			resp := oapi.SimulationTickResponse{
-				Tick:      out.Tick,
-				Elevators: make([]oapi.Elevator, 0, len(out.Elevators)),
-				Events:    eventsToOAPI(out.Events),
-			}
-			for _, e := range out.Elevators {
-				resp.Elevators = append(resp.Elevators, elevatorToOAPI(e))
-			}
-			payload, err := json.Marshal(resp)
+			payload, err := json.Marshal(tickResponseToOAPI(out.Tick, out.Elevators, out.HallCalls, out.Events))
 			if err != nil {
 				slog.Error("auto tick marshal failed", "err", err)
 				continue

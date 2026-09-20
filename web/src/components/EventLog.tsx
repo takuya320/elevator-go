@@ -32,6 +32,7 @@ function tagClass(e: SimulationEvent): string {
     case 'hall_call.requested':
     case 'hall_call.served':
     case 'hall_call.canceled':
+    case 'hall_call.reassigned':
       return 'tag-hall'
     case 'car_call.requested':
       return 'tag-car'
@@ -47,6 +48,7 @@ function tagLabel(e: SimulationEvent): string {
     case 'hall_call.requested': return 'HALL'
     case 'hall_call.served':    return 'SERVED'
     case 'hall_call.canceled':  return 'CANCEL'
+    case 'hall_call.reassigned': return 'REASSIGN'
     case 'car_call.requested':  return 'CAR'
     case 'elevator.arrived':    return 'ARRIVE'
     case 'elevator.state_changed': return 'STATE'
@@ -61,6 +63,11 @@ function describe(e: SimulationEvent): string {
       return `${e.elevatorId} が ${e.floor}F の呼びを完了`
     case 'hall_call.canceled':
       return `呼び ${shortId(e.callId)} をキャンセル`
+    case 'hall_call.reassigned':
+      // elevatorId 省略 = 受け入れ可能な号機が無く waiting に戻った。
+      return e.elevatorId
+        ? `${e.floor}F ${arrow(e.direction)} を ${e.elevatorId} に再割当`
+        : `${e.floor}F ${arrow(e.direction)} の割当を解除（待機中）`
     case 'car_call.requested':
       return `${e.elevatorId} → ${e.floor}F`
     case 'elevator.arrived':

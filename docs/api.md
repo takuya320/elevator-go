@@ -370,14 +370,25 @@ n 階にいる人から見えるエレベーター一覧。
 ### 8.1 POST `/simulation/tick`
 
 時間を 1 ステップ進め、各エレベーターを 1 階分（またはドア状態 1 段階）動かす。
+`GET /events`（SSE）も同じ形を配信する。
 
 **Response 200**
 ```json
 {
   "tick": 42,
-  "elevators": [ /* Elevator[] */ ]
+  "elevators": [ /* Elevator[] */ ],
+  "hallCalls": [ /* HallCall[]：active（waiting / assigned）な呼び */ ],
+  "events": [ /* SimulationEvent[] */ ]
 }
 ```
+
+`hallCalls` はホールボタンの点灯状態に対応する。割当先の号機が停止すると呼びは
+`waiting` に戻って `Elevator.assignedHallCalls` から外れるため、点灯の判定には
+号機側ではなく必ずこちらを使う（`docs/behavior.md` §3.4）。
+
+`events` の `hall_call.reassigned` は呼びの割当先が変わったことを表す。`elevatorId` が
+付いていれば新しい割当先、省略されていれば引き受けられる号機が無く `waiting` に
+戻ったことを意味する。
 
 ### 8.2 POST `/simulation/reset`
 

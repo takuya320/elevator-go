@@ -66,6 +66,17 @@ func (c *HallCall) MarkServed() bool {
 	return true
 }
 
+// 割当先が運転停止したときに waiting へ戻す。呼び自体は消さない
+// （ホールボタンは点灯したまま、応答できる号機が現れるのを待つ）。
+func (c *HallCall) Unassign() bool {
+	if c.status != HallCallStatusAssigned {
+		return false
+	}
+	c.status = HallCallStatusWaiting
+	c.assignedElevatorID = nil
+	return true
+}
+
 // served / canceled は不変。
 func (c *HallCall) Cancel() bool {
 	if c.status == HallCallStatusServed || c.status == HallCallStatusCanceled {

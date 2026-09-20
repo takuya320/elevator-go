@@ -29,6 +29,16 @@ type HallCallCanceled struct {
 
 func (HallCallCanceled) EventName() string { return "hall_call.canceled" }
 
+// ElevatorID が空文字なら「割当が外れて waiting に戻った」ことを表す。
+type HallCallReassigned struct {
+	CallID     HallCallID
+	Floor      Floor
+	Direction  Direction
+	ElevatorID ElevatorID
+}
+
+func (HallCallReassigned) EventName() string { return "hall_call.reassigned" }
+
 type CarCallRequested struct {
 	ElevatorID ElevatorID
 	Floor      Floor

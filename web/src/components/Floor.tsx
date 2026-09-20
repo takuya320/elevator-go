@@ -1,33 +1,32 @@
-import type { Elevator, FloorRange } from '../types'
+import type { Elevator, FloorRange, HallCall } from '../types'
 import { hallKey } from '../App'
 
 export function Floor({
   floor,
   range,
   elevators,
+  hallCalls,
   optimisticHall,
   onHallPress,
 }: {
   floor: number
   range: FloorRange
   elevators: Elevator[]
+  hallCalls: HallCall[]
   optimisticHall: Set<string>
   onHallPress: (floor: number, direction: 'up' | 'down') => void
 }) {
   const upDisabled = floor === range.max
   const downDisabled = floor === range.min
 
-  // サーバ状態 (assignedHallCalls) または optimistic で点灯。
+  // 点灯は hallCalls（active な呼び）で判定する。割当先が停止すると呼びは
+  // waiting に戻り号機から外れるので、assignedHallCalls では消えてしまう。
   const upLit =
     optimisticHall.has(hallKey(floor, 'up')) ||
-    elevators.some((e) =>
-      e.assignedHallCalls.some((c) => c.floor === floor && c.direction === 'up'),
-    )
+    hallCalls.some((c) => c.floor === floor && c.direction === 'up')
   const downLit =
     optimisticHall.has(hallKey(floor, 'down')) ||
-    elevators.some((e) =>
-      e.assignedHallCalls.some((c) => c.floor === floor && c.direction === 'down'),
-    )
+    hallCalls.some((c) => c.floor === floor && c.direction === 'down')
 
   return (
     <div className="floor">
