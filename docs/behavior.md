@@ -190,22 +190,21 @@ auto-ticker の tick は SSE に配信されるが、**手動 `POST /simulation/
 | 現在階を行き先指定 (Car Call)    | 即時開扉（成功扱い）         |
 | 現在階を行き先指定 (Hall Call)   | 通常通り受付（同階に止まる） |
 
-> 既存コード `main.go` の `FloorRange{Min:-2, Max:20}` は地下対応のサンプル値。MVP の domain default は 1〜10 にし、`Reset` で上書き可能にする。
+> domain default は 1〜10。`main.go` が `FLOOR_MIN` / `FLOOR_MAX` を読んで `ResetSimulation` の既定値に渡すので、`FLOOR_MIN=-2 FLOOR_MAX=20` のように地下対応の建物へ起動時に差し替えられる。`POST /simulation/reset` の body でも上書きできる。
 
 ---
 
 ## 6. 並行制御
 
-複数リクエストが同時に到着すると、`ElevatorBank` の状態が壊れる。MVP のメモリ実装では Repository 層で粗いロックをかける。
+複数リクエストが同時に到着すると、`ElevatorBank` の状態が壊れる。インメモリ実装では UseCase 層で粗いロックをかける。
 
-### 6.1 MVP（インメモリ）
+### 6.1 現行（インメモリ）
 
 ```text
-ElevatorBankRepository の実装が sync.Mutex を持ち、
-Find→処理→Save の間を UseCase 側でロック区間にする。
+各 UseCase が Lock → Find → 処理 → Save → Unlock を守る。
 ```
 
-実装上のシンプルな案: Repository ではなく UseCase 側に注入される `Locker` を用意し、各 UseCase が `Lock → Find → 処理 → Save → Unlock` を強制する。
+Repository ではなく UseCase 側に注入される `Locker`（`internal/infrastructure/sync` の mutex 実装）が担う。**全 UseCase が同一 instance を共有する**ので、auto-ticker の tick と HTTP リクエストが interleave しない。
 
 ### 6.2 将来（DB 永続化）
 
@@ -218,7 +217,7 @@ Find→処理→Save の間を UseCase 側でロック区間にする。
 ドメインに直接 UUID 生成を書かず、`IDGenerator` をインターフェース化してテストで差し替え可能にする。
 
 ```go
-// internal/domain/elevator/id.go (or usecase 側)
+// internal/usecase/id_generator.go
 type IDGenerator interface {
     NewID() string
 }
@@ -229,7 +228,7 @@ type IDGenerator interface {
 | `ElevatorID`  | 設定 / Reset 時に固定（`ev-1`, `ev-2`） |
 | `HallCallID`  | UUID v4 を `IDGenerator` で生成 |
 
-UseCase は `IDGenerator` を依存に持ち、`PressHallButtonUseCase` でのみ採番する。テストは固定値を返す `FakeIDGenerator` を使う。
+UseCase は `IDGenerator` を依存に持ち、`PressHallButton` でのみ採番する。テストは固定値を返す `FakeIDGenerator` を使う。
 
 ---
 
@@ -250,23 +249,29 @@ type ElevatorInit struct {
 }
 ```
 
-### MVP デフォルト（リクエスト省略時）
+### デフォルト（リクエスト省略時）
+
+既定値は `main.go` が起動時 env から組み立てて `ResetSimulation` に注入する。body を空にした
+`POST /simulation/reset`（UI のリセットボタン）と起動時の初期化はこの値を使う。
 
 ```text
-minFloor = 1
-maxFloor = 10
-elevators:
-  - id: ev-1, initialFloor: 1
-  - id: ev-2, initialFloor: 10
+minFloor = FLOOR_MIN        (既定 1)
+maxFloor = FLOOR_MAX        (既定 10)
+elevators: ELEVATOR_COUNT 台 (既定 2) を階範囲に等間隔配置
+  - 1 台なら minFloor
+  - 2 台なら両端
+  - 3 台以上は端点を含む等間隔
+  - id は ev-1, ev-2, … と採番
 ```
 
-`doorOpenTicks` / `moveTicksPerFloor` は MVP では各 1 で固定し、設定化しない。リッチ化時に `SimulationConfig` を導入する。
+`doorOpenTicks` / `moveTicksPerFloor` は各 1 で固定し、設定化しない。リッチ化時に `SimulationConfig` を導入する。
 
 ---
 
-## 9. 実装着手順
+## 9. 実装着手順（完了済みの記録）
 
-`docs/api.md` §4.1 の MVP 4 本を作るための、内側からの実装順。
+`docs/api.md` §4.1 の利用者向け 4 本を作るための、内側からの実装順。以下は完了しており、
+残っているのは参照系エンドポイント（同 §4.2 の 501 印）のみ。
 
 1. **VO** (`Floor`, `Direction`, `DoorState`, `OperationState`, `HallCallStatus`, `BuildingSpec`)
 2. **`StopSchedule`** + `nextFloor` ロジック（§2）

@@ -5,7 +5,7 @@
 
 ## このプロジェクト
 
-Go 製のエレベーター運行シミュレータ。OpenAPI 定義 → chi で配信、DDD + クリーンアーキテクチャでドメイン層を組んだもの。MVP として 5 エンドポイント（フロアからのエレベーター取得・ホール呼び・かご内行先・tick・reset）が実装済み。残り（admin 系）は `oapi.Unimplemented` 経由で 501。
+Go 製のエレベーター運行シミュレータ。OpenAPI 定義 → chi で配信、DDD + クリーンアーキテクチャでドメイン層を組んだもの。OpenAPI 上の 16 operation のうち 11 実装済み（フロアからのエレベーター取得・ホール呼び・かご内行先・ドア開閉・stop/resume・PATCH・ホール呼びキャンセル・tick・reset）。未実装は参照系 4 本（`GET /elevators`、`GET /elevators/{elevatorId}`、`GET /hall-calls`、`GET /floors/{floor}/hall-calls`）と `POST /elevators` で、`oapi.Unimplemented` 経由で 501。
 
 ## 厳守ルール
 
@@ -95,9 +95,8 @@ cd web && pnpm run build       # フロントビルド（webdist/ に出力、go
 
 ## 設計判断（コードに残せない判断）
 
-- **配車**: `NearestAvailableElevatorPolicy`。距離 → idle 優先 → ElevatorID 昇順で決定論。
-- **冪等性**: `(floor, direction)` ごとに active な HallCall は 1 つだけ。重複ホール呼びは既存を 200 で返却、新規は 201。
-- **dispatch 失敗時**: 全号機停止などで割当不能なら call を登録しない（無副作用）。HTTP は 409 `INVALID_STATE`。
+- **配車**: `NearestAvailableElevatorPolicy`。進行方向の整合 → 距離 → idle 優先 → ElevatorID 昇順で決定論。同階の逆方向呼びを背負う号機の除外は policy ではなく集約側 `dispatchCandidates` の責務。
+- **冪等性**: `(floor, direction)` ごとに active な HallCall は 1 つだけ。重複ホール呼びは既存を 200 で返却、新規は 201。- **dispatch 失敗時**: 全号機停止などで割当不能なら call を登録しない（無副作用）。HTTP は 409 `INVALID_STATE`。
 - **ドア**: MVP は `open` / `closed` のみ。`opening` / `closing` は OpenAPI 上の enum に残してあるが返さない。
 - **tick の 2 段階**: AdvanceOneTick は「各号機を進める → 開扉中の階に対応する assigned call を served にする」の順。多重遷移を避けるためこの順序。
 - **扉開→閉に 1 tick の dwell**: 到着・同階指定で扉を開けると `doorDwell=1` がセットされ、自動閉扉は dwell 消費の次の tick で起きる（「開いた瞬間に閉まる」を避ける）。`OpenDoor`/`CloseDoor` ボタンは dwell を即時 0 に戻す。

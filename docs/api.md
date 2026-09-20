@@ -1,6 +1,6 @@
 # Elevator API 仕様書
 
-エレベーターシミュレータの REST API 仕様。Go 実装（`elevator/elevator.go`）の `Elevator` インターフェースを HTTP で公開する想定。
+エレベーターシミュレータの REST API 仕様。ドメイン層（`internal/domain/elevator`）の `ElevatorBank` 集約を HTTP で公開する。
 
 ## 1. 概要
 
@@ -62,7 +62,7 @@ Go の定数定義と 1:1 対応。
 | `closed`    | 閉      |
 | `closing`   | 閉動作中   |
 
-> **MVP**: レスポンスに現れるのは `open` / `closed` のみ。`opening` / `closing` は将来のドア多段遷移実装時に有効化する。
+> レスポンスに現れるのは `open` / `closed` のみ。`opening` / `closing` は enum に定義してあるが返さない。ドアの多段遷移を実装するときに有効化する。
 
 ### OperationState
 
@@ -94,9 +94,12 @@ Go の定数定義と 1:1 対応。
 | `direction`          | Direction       |                                 |
 | `doorState`          | DoorState       |                                 |
 | `operationState`     | OperationState  |                                 |
-| `floorRange`         | object          | `{ "min": -2, "max": 20 }`      |
+| `floorRange`         | object          | 既定は `{ "min": 1, "max": 10 }`。地下は負値 |
 | `destinationFloors`  | int[]           | 車内行き先（点灯中ボタン）              |
 | `assignedHallCalls`  | HallCall[]      | 自エレベーターに割当済みのホール呼び       |
+| `doorHoldOpen`       | bool            | 「開」ボタンによる保持中。true の間は移動・自動閉扉なし |
+| `homeFloor`          | int             | 自動帰還の対象階。既定は `initialFloor`   |
+| `autoReturnEnabled`  | bool            | 自動帰還のオン/オフ                    |
 
 ### HallCall
 
@@ -113,7 +116,7 @@ Go の定数定義と 1:1 対応。
 
 ## 4. エンドポイント一覧
 
-### 4.1 MVP（最初に実装する 4 本）
+### 4.1 利用者向けの中心 4 本
 
 | Method | Path                                  | 用途                       |
 |--------|---------------------------------------|--------------------------|
@@ -122,12 +125,14 @@ Go の定数定義と 1:1 対応。
 | POST   | `/elevators/{elevatorId}/car-calls`   | 車内の行き先ボタン押下             |
 | POST   | `/simulation/tick`                    | シミュレーションを 1 ステップ進める   |
 
-### 4.2 全エンドポイント
+### 4.2 全エンドポイントと実装状況
+
+未実装のものはハンドラを持たず `oapi.Unimplemented` 経由で 501 を返す。
 
 ```text
-GET    /elevators
-POST   /elevators
-GET    /elevators/{elevatorId}
+GET    /elevators                            501 未実装
+POST   /elevators                            501 未実装
+GET    /elevators/{elevatorId}               501 未実装
 PATCH  /elevators/{elevatorId}
 
 POST   /elevators/{elevatorId}/car-calls
@@ -137,14 +142,22 @@ POST   /elevators/{elevatorId}/stop
 POST   /elevators/{elevatorId}/resume
 
 GET    /floors/{floor}/elevators
-GET    /floors/{floor}/hall-calls
+GET    /floors/{floor}/hall-calls            501 未実装
 POST   /floors/{floor}/hall-calls
 
-GET    /hall-calls
+GET    /hall-calls                           501 未実装
 DELETE /hall-calls/{callId}
 
 POST   /simulation/tick
 POST   /simulation/reset
+```
+
+OpenAPI に定義のない配信系が 3 本ある。
+
+```text
+GET    /               React UI（embed 済み）
+GET    /events         SSE。接続直後に現在状態、以降は tick ごとに全状態
+GET    /docs           Swagger UI（仕様は GET /openapi.json）
 ```
 
 ---
@@ -252,6 +265,8 @@ n 階にいる人から見えるエレベーター一覧。
 
 ### 6.1 GET `/elevators`
 
+> **未実装**（501）。現在状態は `GET /events` か `POST /simulation/tick` のレスポンスで取れる。
+
 全エレベーター一覧。
 
 **Response 200**
@@ -260,6 +275,8 @@ n 階にいる人から見えるエレベーター一覧。
 ```
 
 ### 6.2 POST `/elevators`
+
+> **未実装**（501）。台数は起動時 env（`ELEVATOR_COUNT`）か `POST /simulation/reset` で決める。
 
 エレベーター追加（シミュレーター用）。
 
@@ -278,6 +295,8 @@ n 階にいる人から見えるエレベーター一覧。
 
 ### 6.3 GET `/elevators/{elevatorId}`
 
+> **未実装**（501）。
+
 詳細取得。**Response 200**: `Elevator`
 
 ### 6.4 PATCH `/elevators/{elevatorId}`
@@ -290,27 +309,41 @@ n 階にいる人から見えるエレベーター一覧。
   "currentFloor": 4,
   "direction": "up",
   "doorState": "closed",
-  "operationState": "running"
+  "operationState": "running",
+  "homeFloor": 1,
+  "autoReturnEnabled": true
 }
 ```
 
+`doorState` は `open` / `closed` のみ受け付ける。`currentFloor` / `homeFloor` の範囲検証は集約側で行い、外れていれば 400 `OUT_OF_RANGE`。
+
+**Response 200**: `Elevator`
+
 ### 6.5 ドア操作
 
-> **MVP スコープ外**。ドアの多段遷移 (`opening`/`closing`) と併せて将来実装する。
+- `POST /elevators/{elevatorId}/doors/open` → `doorState` を `open`、`doorHoldOpen` を `true`。保持中は移動も自動閉扉もしない
+- `POST /elevators/{elevatorId}/doors/close` → `doorState` を `closed`、`doorHoldOpen` を `false`。次 tick から通常運行に戻る
 
-- `POST /elevators/{elevatorId}/doors/open` → `doorState` を `opening` → `open`
-- `POST /elevators/{elevatorId}/doors/close` → `doorState` を `closing` → `closed`
+どちらも dwell（開扉を保持する tick 数）を 0 に戻すので、「開」直後の「閉」が即時に効く。到着時の自動開扉と dwell の関係は `docs/behavior.md` §1.2。
+
+**Response 200**: `Elevator`
 
 ### 6.6 運転制御
 
 - `POST /elevators/{elevatorId}/stop` → `operationState` を `stopped`
 - `POST /elevators/{elevatorId}/resume` → `operationState` を `running`
 
+`stopped` の間は tick で一切進まず、かご内行先の追加も 409 `INVALID_STATE`。schedule と direction は保持され、`resume` で続きから動く。
+
+**Response 200**: `Elevator`
+
 ---
 
 ## 7. ホール呼び一覧 API
 
 ### 7.1 GET `/hall-calls`
+
+> **未実装**（501）。割当済みの呼びは `Elevator.assignedHallCalls` から取れる。
 
 **Query**
 - `status` (任意): `waiting` / `assigned` / `served` / `canceled`（カンマ区切り可）
@@ -319,6 +352,8 @@ n 階にいる人から見えるエレベーター一覧。
 **Response 200**: `{ "hallCalls": HallCall[] }`
 
 ### 7.2 GET `/floors/{floor}/hall-calls`
+
+> **未実装**（501）。
 
 特定階の呼び一覧。**Response 200**: `{ "floor": 5, "calls": HallCall[] }`
 
@@ -359,10 +394,12 @@ n 階にいる人から見えるエレベーター一覧。
 }
 ```
 
-各フィールドは省略可。省略時は MVP 既定値を使用する（`docs/behavior.md` §8）:
+各フィールドは省略可。省略時は起動時 env から組み立てた既定値を使う（`docs/behavior.md` §8）:
 
-- `floorRange` 省略時: `{ "min": 1, "max": 10 }`
-- `elevators` 省略時: `ev-1@minFloor` と `ev-2@maxFloor` の 2 台
+- `floorRange` 省略時: `FLOOR_MIN` / `FLOOR_MAX`（既定 `{ "min": 1, "max": 10 }`）
+- `elevators` 省略時: `ELEVATOR_COUNT` 台（既定 2 台）を階範囲に等間隔配置し、`ev-1`, `ev-2`, … と採番
+
+body を空（`Content-Length: 0`）で呼んでも同じ既定値が適用される。UI のリセットボタンと起動時の初期化はこの経路を使う。
 
 **Response 200**
 ```json
@@ -378,23 +415,27 @@ n 階にいる人から見えるエレベーター一覧。
 
 ---
 
-## 9. インターフェース対応表
+## 9. ドメイン対応表
 
-既存 Go インターフェース (`elevator.Elevator`) とエンドポイントの対応。
+`ElevatorBank` 集約（`internal/domain/elevator`）とエンドポイントの対応。
 
-| Go メソッド             | HTTP                                                    |
-|-----------------------|---------------------------------------------------------|
-| `CurrentFloor`        | `GET /elevators/{id}` → `currentFloor`                  |
-| `Range`               | `GET /elevators/{id}` → `floorRange`                    |
-| `PressHallButton`     | `POST /floors/{floor}/hall-calls`                       |
-| `IsHallButtonLit`     | `GET /floors/{floor}/hall-calls` → `status != served`   |
-| `SelectDestination`   | `POST /elevators/{id}/car-calls`                        |
-| `IsCarButtonLit`      | `GET /elevators/{id}` → `destinationFloors` に含まれるか    |
+| ドメイン API                      | HTTP                                                          |
+|---------------------------------|---------------------------------------------------------------|
+| `Elevator.CurrentFloor`          | `Elevator.currentFloor`（tick / SSE / 可視一覧のレスポンス）          |
+| `ElevatorBank.Spec`              | `Elevator.floorRange`                                         |
+| `ElevatorBank.PressHallButton`   | `POST /floors/{floor}/hall-calls`                             |
+| `ElevatorBank.HallCalls`         | `Elevator.assignedHallCalls` → `status != served` で点灯判定      |
+| `ElevatorBank.PressCarButton`    | `POST /elevators/{id}/car-calls`                              |
+| `Elevator.Destinations`          | `Elevator.destinationFloors` に含まれるか = かご内ボタン点灯          |
+| `ElevatorBank.OpenDoor` / `CloseDoor` | `POST /elevators/{id}/doors/open` ・ `.../doors/close`    |
+| `ElevatorBank.CancelHallCall`    | `DELETE /hall-calls/{callId}`                                 |
+| `ElevatorBank.AdvanceOneTick`    | `POST /simulation/tick`、および auto-ticker → `GET /events`      |
+| `ElevatorBank.VisibleElevatorsFrom` | `GET /floors/{floor}/elevators`                            |
 
 ---
 
 ## 10. 実装メモ
 
 - ボタン点灯解除は運行側で制御（`SelectDestination` で点灯 → 到着で消灯、ホール呼びは応答時に `served` に遷移して消灯）
-- `tick` ベースで時間進行する場合、ドア開閉は複数 tick にまたがる状態遷移として扱う（`opening` → `open` → `closing` → `closed`）
-- 並行アクセスはサーバ側でロックする前提（現状の `InMemoryElevator` は未対応のため、HTTP 層を作る前にミューテックスを入れる必要あり）
+- ドア開閉は `open` / `closed` の 2 値のまま、開扉の次の tick を dwell として挟むことで「開いた瞬間に閉まる」のを避けている（`docs/behavior.md` §1.2）。`opening` / `closing` を使った多段遷移は未実装
+- 並行アクセスは `usecase.Locker`（`internal/infrastructure/sync` の単一 mutex）で直列化する。全 UseCase が同じ instance を共有し、tick とリクエストの interleave を防ぐ
