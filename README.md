@@ -47,17 +47,24 @@ docker compose down               # 停止
 
 ## API
 
-エンドポイントは OpenAPI 仕様（[docs/openapi.yaml](docs/openapi.yaml)）が一次ソース。Swagger UI でブラウズするのが手っ取り早い。MVP として動いているのは以下:
+エンドポイントは OpenAPI 仕様（[docs/openapi.yaml](docs/openapi.yaml)）が一次ソース。Swagger UI でブラウズするのが手っ取り早い。動いているのは以下:
 
 - `GET /` … React UI（embed 済み）
-- `GET /events` … SSE。接続直後に現在状態、以降は tick ごとに差分
+- `GET /events` … SSE。接続直後に現在状態、以降は tick ごとに全エレベーターの状態
 - `GET /floors/{floor}/elevators` … その階から見えるエレベーター
 - `POST /floors/{floor}/hall-calls` … ホール呼び
 - `POST /elevators/{elevatorId}/car-calls` … かご内行先
+- `POST /elevators/{elevatorId}/doors/open` ・ `.../doors/close` … ドアの開閉
+- `POST /elevators/{elevatorId}/stop` ・ `.../resume` … 運転停止・再開
+- `PATCH /elevators/{elevatorId}` … 状態の手動更新（ホーム階・自動帰還の切替を含む）
+- `DELETE /hall-calls/{callId}` … ホール呼びのキャンセル
+- `GET /elevators` ・ `GET /elevators/{elevatorId}` … 号機の一覧・詳細
+- `POST /elevators` … 号機を追加（次の配車から候補に入る）
+- `GET /hall-calls` ・ `GET /floors/{floor}/hall-calls` … ホール呼びの横断検索・階別一覧
 - `POST /simulation/tick` … 手動で 1 tick 進める
 - `POST /simulation/reset` … リセット
 
-admin 系（ドア操作、stop/resume、PATCH 系）は OpenAPI には書いてあるが未実装で、呼ぶと 501 が返る。
+OpenAPI 上の 16 operation はすべて実装済み。
 
 ## 構成
 

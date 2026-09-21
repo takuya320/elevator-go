@@ -9,6 +9,7 @@ import (
 type GetStateOutput struct {
 	Tick      int
 	Elevators []ElevatorSnapshot
+	HallCalls []HallCallSnapshot
 }
 
 // SSE 接続直後の初期状態送信に使う。Tick を進めない。
@@ -34,7 +35,7 @@ func (u *GetState) Execute(ctx context.Context) (*GetStateOutput, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := &GetStateOutput{Tick: tick}
+	out := &GetStateOutput{Tick: tick, HallCalls: activeHallCallSnapshots(bank)}
 	for _, e := range bank.Elevators() {
 		out.Elevators = append(out.Elevators, toElevatorSnapshot(e, bank))
 	}

@@ -44,12 +44,16 @@ open   → closed    (dwell が尽きたら次 tick で自動閉扉)
 ```text
 waiting  → assigned  (DispatchPolicy で割当)
 assigned → served    (割当エレベーターが該当階で開扉)
+assigned → waiting   (割当先が非 running になり、代わりの号機も居ない。§3.4)
 waiting  → canceled  (DELETE /hall-calls/{id})
 assigned → canceled  (同上)
 served   → (不変)
 ```
 
-MVP では `PressHallButton` 内で即時 `assigned` まで進めるため、`waiting` は永続化されない（割当不可なら呼び自体を作らずエラー）。
+`PressHallButton` は受付時に即時 `assigned` まで進めるため、**新規受付で `waiting` になることはない**
+（割当不可なら呼び自体を作らずエラー）。`waiting` が現れるのは登録後に割当先が停止し、
+かつ引き受けられる号機が 1 台も無いときだけ。呼び自体は消さず、号機が復帰・空き次第
+tick で再割当する。
 
 serve 判定では方向は見ない。「同号機が同階の up と down の両方を抱える」事態は
 `dispatchCandidates` のフィルタ（§3.1）で防いでおり、serve 側で重ねて方向を
@@ -120,10 +124,32 @@ idle 号機が同階の hall call を受け、`AddDestination(current)` が即�
 タイミングで、号機の `direction` を呼び方向に確定する。これがその後の §3.1 の
 2 番目のフィルタの判定材料になる。
 
-### 3.4 考慮しないこと（MVP）
+### 3.4 割当先が停止したときの再割当
+
+実機の群管理は号機が休止すると抱えていた呼びを他号機へ振り直す。同じ振る舞いを
+`AdvanceOneTick` の先頭（§4.1 の 1.）で行う。
+
+```text
+active な HallCall のうち、割当先が非 running（または未割当）のものについて:
+  候補あり → AssignTo(新号機) + AddDestination、hall_call.reassigned を発行
+  候補なし → assigned なら waiting に戻し、hall_call.reassigned（elevatorId なし）を発行
+             既に waiting なら何もしない（毎 tick のイベント連打を避ける）
+```
+
+- 呼び自体は消さない。ホールボタンは点灯したままで、号機が復帰・空き次第 tick で拾う
+- 候補の絞り込みは新規受付と同じ `dispatchCandidates` → `DispatchPolicy`（§3.1, §3.2）
+- **停止した号機の `StopSchedule` からは対象階を消さない**。schedule は car call と
+  hall call の由来を区別しないため、消すと同階の car call まで落ちる。結果として
+  復帰後に 1 回だけ余分に停止するが、乗客を取りこぼすより安全側に倒している
+- 受付時に候補ゼロなら従来どおり 409 で呼びを作らない（§3.1）。「受理した呼びは消えない」と
+  「応答できないなら受理しない」を両立させる割り切り
+
+### 3.5 考慮しないこと
 
 - 既存の `StopSchedule` 量（混雑度）
 - ドア開閉中の号機の不利
+- 定員・積載（満員通過）
+- 待ち時間や ETA の最小化（距離を階数差で近似している）
 
 ---
 
@@ -134,7 +160,10 @@ idle 号機が同階の hall call を受け、`AddDestination(current)` が即�
 ### 4.1 1 tick で起きる順序
 
 ```text
-1. 各 Elevator について Elevator.AdvanceOneTick() を実行
+1. ElevatorBank.reassignHallCalls()
+   - 割当先が非 running な active HallCall を振り直す（§3.4）
+   - 号機を動かす前に行うので、新しい割当先はこの tick から動き出す
+2. 各 Elevator について Elevator.AdvanceOneTick() を実行
    - operationState != running → no-op
    - holdOpen                   → 扉開きのままその tick は何もしない
    - doorState == open & dwell>0 → dwell を 1 消費し、扉開きのまま終了
@@ -142,7 +171,7 @@ idle 号機が同階の hall call を受け、`AddDestination(current)` が即�
    - schedule empty (& autoReturn off or at home) → idle にして終了
    - schedule empty & autoReturn on & 非ホーム階 → home を schedule に積みフォールスルー
    - それ以外                    → 次目的階方向に 1 階移動。到着なら schedule から削除して開扉（dwell リセット）
-2. ElevatorBank.markServedHallCalls()
+3. ElevatorBank.markServedHallCalls()
    - assigned 状態の HallCall について、割当号機が同階で open → served
 ```
 
@@ -190,22 +219,21 @@ auto-ticker の tick は SSE に配信されるが、**手動 `POST /simulation/
 | 現在階を行き先指定 (Car Call)    | 即時開扉（成功扱い）         |
 | 現在階を行き先指定 (Hall Call)   | 通常通り受付（同階に止まる） |
 
-> 既存コード `main.go` の `FloorRange{Min:-2, Max:20}` は地下対応のサンプル値。MVP の domain default は 1〜10 にし、`Reset` で上書き可能にする。
+> domain default は 1〜10。`main.go` が `FLOOR_MIN` / `FLOOR_MAX` を読んで `ResetSimulation` の既定値に渡すので、`FLOOR_MIN=-2 FLOOR_MAX=20` のように地下対応の建物へ起動時に差し替えられる。`POST /simulation/reset` の body でも上書きできる。
 
 ---
 
 ## 6. 並行制御
 
-複数リクエストが同時に到着すると、`ElevatorBank` の状態が壊れる。MVP のメモリ実装では Repository 層で粗いロックをかける。
+複数リクエストが同時に到着すると、`ElevatorBank` の状態が壊れる。インメモリ実装では UseCase 層で粗いロックをかける。
 
-### 6.1 MVP（インメモリ）
+### 6.1 現行（インメモリ）
 
 ```text
-ElevatorBankRepository の実装が sync.Mutex を持ち、
-Find→処理→Save の間を UseCase 側でロック区間にする。
+各 UseCase が Lock → Find → 処理 → Save → Unlock を守る。
 ```
 
-実装上のシンプルな案: Repository ではなく UseCase 側に注入される `Locker` を用意し、各 UseCase が `Lock → Find → 処理 → Save → Unlock` を強制する。
+Repository ではなく UseCase 側に注入される `Locker`（`internal/infrastructure/sync` の mutex 実装）が担う。**全 UseCase が同一 instance を共有する**ので、auto-ticker の tick と HTTP リクエストが interleave しない。
 
 ### 6.2 将来（DB 永続化）
 
@@ -218,7 +246,7 @@ Find→処理→Save の間を UseCase 側でロック区間にする。
 ドメインに直接 UUID 生成を書かず、`IDGenerator` をインターフェース化してテストで差し替え可能にする。
 
 ```go
-// internal/domain/elevator/id.go (or usecase 側)
+// internal/usecase/id_generator.go
 type IDGenerator interface {
     NewID() string
 }
@@ -229,7 +257,7 @@ type IDGenerator interface {
 | `ElevatorID`  | 設定 / Reset 時に固定（`ev-1`, `ev-2`） |
 | `HallCallID`  | UUID v4 を `IDGenerator` で生成 |
 
-UseCase は `IDGenerator` を依存に持ち、`PressHallButtonUseCase` でのみ採番する。テストは固定値を返す `FakeIDGenerator` を使う。
+UseCase は `IDGenerator` を依存に持ち、`PressHallButton` でのみ採番する。テストは固定値を返す `FakeIDGenerator` を使う。
 
 ---
 
@@ -250,23 +278,29 @@ type ElevatorInit struct {
 }
 ```
 
-### MVP デフォルト（リクエスト省略時）
+### デフォルト（リクエスト省略時）
+
+既定値は `main.go` が起動時 env から組み立てて `ResetSimulation` に注入する。body を空にした
+`POST /simulation/reset`（UI のリセットボタン）と起動時の初期化はこの値を使う。
 
 ```text
-minFloor = 1
-maxFloor = 10
-elevators:
-  - id: ev-1, initialFloor: 1
-  - id: ev-2, initialFloor: 10
+minFloor = FLOOR_MIN        (既定 1)
+maxFloor = FLOOR_MAX        (既定 10)
+elevators: ELEVATOR_COUNT 台 (既定 2) を階範囲に等間隔配置
+  - 1 台なら minFloor
+  - 2 台なら両端
+  - 3 台以上は端点を含む等間隔
+  - id は ev-1, ev-2, … と採番
 ```
 
-`doorOpenTicks` / `moveTicksPerFloor` は MVP では各 1 で固定し、設定化しない。リッチ化時に `SimulationConfig` を導入する。
+`doorOpenTicks` / `moveTicksPerFloor` は各 1 で固定し、設定化しない。リッチ化時に `SimulationConfig` を導入する。
 
 ---
 
-## 9. 実装着手順
+## 9. 実装着手順（完了済みの記録）
 
-`docs/api.md` §4.1 の MVP 4 本を作るための、内側からの実装順。
+`docs/api.md` §4.1 の利用者向け 4 本を作るための、内側からの実装順。以下は完了しており、
+残っているのは参照系エンドポイント（同 §4.2 の 501 印）のみ。
 
 1. **VO** (`Floor`, `Direction`, `DoorState`, `OperationState`, `HallCallStatus`, `BuildingSpec`)
 2. **`StopSchedule`** + `nextFloor` ロジック（§2）

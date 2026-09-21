@@ -10,6 +10,7 @@ import (
 type AdvanceTickOutput struct {
 	Tick      int
 	Elevators []ElevatorSnapshot
+	HallCalls []HallCallSnapshot
 	Events    []EventSnapshot
 }
 
@@ -54,7 +55,11 @@ func (u *AdvanceTick) Execute(ctx context.Context) (*AdvanceTickOutput, error) {
 	domainEvents := bank.DrainEvents()
 	now := u.clock.Now()
 
-	out := &AdvanceTickOutput{Tick: tick, Events: eventSnapshotsFromDomain(domainEvents, now)}
+	out := &AdvanceTickOutput{
+		Tick:      tick,
+		HallCalls: activeHallCallSnapshots(bank),
+		Events:    eventSnapshotsFromDomain(domainEvents, now),
+	}
 	for _, e := range bank.Elevators() {
 		out.Elevators = append(out.Elevators, toElevatorSnapshot(e, bank))
 	}

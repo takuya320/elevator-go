@@ -82,6 +82,14 @@ func eventSnapshotsFromDomain(events []elevator.DomainEvent, ts time.Time) []Eve
 			snap.ElevatorID = strPtr(string(v.ElevatorID))
 		case elevator.HallCallCanceled:
 			snap.CallID = strPtr(string(v.CallID))
+		case elevator.HallCallReassigned:
+			snap.CallID = strPtr(string(v.CallID))
+			snap.Floor = intPtr(v.Floor.Value())
+			snap.Direction = strPtr(string(v.Direction))
+			// 空 ID は「割当先なし（waiting に戻った）」。フィールドごと省略して伝える。
+			if v.ElevatorID != "" {
+				snap.ElevatorID = strPtr(string(v.ElevatorID))
+			}
 		case elevator.CarCallRequested:
 			snap.ElevatorID = strPtr(string(v.ElevatorID))
 			snap.Floor = intPtr(v.Floor.Value())
@@ -116,6 +124,19 @@ func toHallCallSnapshot(c *elevator.HallCall) HallCallSnapshot {
 	if eid := c.AssignedElevatorID(); eid != nil {
 		s := string(*eid)
 		out.AssignedElevatorID = &s
+	}
+	return out
+}
+
+// ホールボタンの点灯状態に対応する active（waiting / assigned）な呼びだけを返す。
+// 号機ごとの AssignedHallCalls では waiting（割当先が停止中）を拾えない。
+func activeHallCallSnapshots(bank *elevator.ElevatorBank) []HallCallSnapshot {
+	out := make([]HallCallSnapshot, 0)
+	for _, c := range bank.HallCalls() {
+		if !c.IsActive() {
+			continue
+		}
+		out = append(out, toHallCallSnapshot(c))
 	}
 	return out
 }

@@ -37,8 +37,8 @@ export function App() {
         const [dir, floorStr] = key.split(':')
         const floor = Number(floorStr)
         const direction = dir as 'up' | 'down'
-        const confirmed = state.elevators.some((e) =>
-          e.assignedHallCalls.some((c) => c.floor === floor && c.direction === direction),
+        const confirmed = state.hallCalls.some(
+          (c) => c.floor === floor && c.direction === direction,
         )
         if (!confirmed) next.add(key)
       }

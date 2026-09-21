@@ -1,6 +1,8 @@
 package server
 
 import (
+	"strings"
+
 	"elevator-go/internal/interface/http/oapi"
 	"elevator-go/internal/usecase"
 )
@@ -14,6 +16,33 @@ func hallCallToOAPI(s usecase.HallCallSnapshot) oapi.HallCall {
 		AssignedElevatorId: s.AssignedElevatorID,
 		CreatedAt:          s.CreatedAt,
 	}
+}
+
+func hallCallsToOAPI(calls []usecase.HallCallSnapshot) []oapi.HallCall {
+	out := make([]oapi.HallCall, 0, len(calls))
+	for _, c := range calls {
+		out = append(out, hallCallToOAPI(c))
+	}
+	return out
+}
+
+// handler / auto-ticker / SSE の 3 経路が同じ形を返すため 1 箇所に集約する。
+func tickResponseToOAPI(
+	tick int,
+	elevators []usecase.ElevatorSnapshot,
+	hallCalls []usecase.HallCallSnapshot,
+	events []usecase.EventSnapshot,
+) oapi.SimulationTickResponse {
+	out := oapi.SimulationTickResponse{
+		Tick:      tick,
+		Elevators: make([]oapi.Elevator, 0, len(elevators)),
+		HallCalls: hallCallsToOAPI(hallCalls),
+		Events:    eventsToOAPI(events),
+	}
+	for _, e := range elevators {
+		out.Elevators = append(out.Elevators, elevatorToOAPI(e))
+	}
+	return out
 }
 
 func visibleElevatorToOAPI(s usecase.VisibleElevatorSnapshot) oapi.VisibleElevator {
@@ -99,6 +128,26 @@ func eventsToOAPI(events []usecase.EventSnapshot) []oapi.SimulationEvent {
 	out := make([]oapi.SimulationEvent, 0, len(events))
 	for _, e := range events {
 		out = append(out, eventToOAPI(e))
+	}
+	return out
+}
+
+func elevatorsToOAPI(snaps []usecase.ElevatorSnapshot) []oapi.Elevator {
+	out := make([]oapi.Elevator, 0, len(snaps))
+	for _, s := range snaps {
+		out = append(out, elevatorToOAPI(s))
+	}
+	return out
+}
+
+// クエリの "waiting,assigned" を分解する。空要素・前後の空白は落とす。
+func splitCSV(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
 	}
 	return out
 }

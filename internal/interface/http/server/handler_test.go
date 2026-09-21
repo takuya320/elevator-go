@@ -55,6 +55,11 @@ func newRouter(t *testing.T) http.Handler {
 		CancelHallCall:      usecase.NewCancelHallCall(repo, locker),
 		OpenDoor:            usecase.NewOpenDoor(repo, locker),
 		CloseDoor:           usecase.NewCloseDoor(repo, locker),
+		ListElevators:       usecase.NewListElevators(repo, locker),
+		GetElevator:         usecase.NewGetElevator(repo, locker),
+		AddElevator:         usecase.NewAddElevator(repo, locker),
+		ListHallCalls:       usecase.NewListHallCalls(repo, locker),
+		ListFloorHallCalls:  usecase.NewListFloorHallCalls(repo, locker),
 	}
 
 	if _, err := deps.ResetSimulation.Execute(context.Background(), usecase.ResetSimulationInput{}); err != nil {
@@ -201,14 +206,15 @@ func TestHandler_FullScenario_HallCallToServed(t *testing.T) {
 	}
 	rec := do(t, h, http.MethodGet, "/floors/5/elevators", nil)
 	body := decode[oapi.FloorElevatorsResponse](t, rec)
-	var ev1 *oapi.VisibleElevator
-	for i := range body.Elevators {
-		if body.Elevators[i].Id == "ev-1" {
-			ev1 = &body.Elevators[i]
+	var ev1 oapi.VisibleElevator
+	found := false
+	for _, e := range body.Elevators {
+		if e.Id == "ev-1" {
+			ev1, found = e, true
 			break
 		}
 	}
-	if ev1 == nil {
+	if !found {
 		t.Fatal("ev-1 not found")
 	}
 	type ck struct {
@@ -463,11 +469,209 @@ func TestHandler_OpenAPISpec(t *testing.T) {
 	}
 }
 
-func TestHandler_AdminUnimplemented(t *testing.T) {
-	// OpenAPI 上は定義済みだがハンドラ未実装のものは Unimplemented 経由で 501。
+func TestHandler_AdvanceTick_ReassignsCallWhenAssigneeStops(t *testing.T) {
 	h := newRouter(t)
-	rec := do(t, h, http.MethodGet, "/elevators", nil)
-	if diff := cmp.Diff(http.StatusNotImplemented, rec.Code); diff != "" {
-		t.Errorf("status mismatch (-want +got):\n%s", diff)
+	created := decode[oapi.HallCall](t, do(t, h, http.MethodPost, "/floors/5/hall-calls", map[string]string{"direction": "up"}))
+	if created.AssignedElevatorId == nil || *created.AssignedElevatorId != "ev-1" {
+		t.Fatalf("initial assignee = %v want ev-1", created.AssignedElevatorId)
+	}
+	if rec := do(t, h, http.MethodPost, "/elevators/ev-1/stop", nil); rec.Code != http.StatusOK {
+		t.Fatalf("stop status = %d", rec.Code)
+	}
+
+	body := decode[oapi.SimulationTickResponse](t, do(t, h, http.MethodPost, "/simulation/tick", nil))
+	if got := len(body.HallCalls); got != 1 {
+		t.Fatalf("len(HallCalls) = %d want 1", got)
+	}
+	type ck struct {
+		Status   string
+		Assignee string
+		HasEvent bool
+	}
+	got := ck{Status: string(body.HallCalls[0].Status)}
+	if a := body.HallCalls[0].AssignedElevatorId; a != nil {
+		got.Assignee = *a
+	}
+	for _, e := range body.Events {
+		if string(e.Type) == "hall_call.reassigned" {
+			got.HasEvent = true
+		}
+	}
+	want := ck{Status: "assigned", Assignee: "ev-2", HasEvent: true}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("reassignment mismatch (-want +got):\n%s\nevents=%+v", diff, body.Events)
+	}
+}
+
+func TestHandler_AdvanceTick_KeepsHallCallVisibleWhenAllStopped(t *testing.T) {
+	h := newRouter(t)
+	do(t, h, http.MethodPost, "/floors/5/hall-calls", map[string]string{"direction": "up"})
+	for _, id := range []string{"ev-1", "ev-2"} {
+		if rec := do(t, h, http.MethodPost, "/elevators/"+id+"/stop", nil); rec.Code != http.StatusOK {
+			t.Fatalf("stop %s status = %d", id, rec.Code)
+		}
+	}
+
+	body := decode[oapi.SimulationTickResponse](t, do(t, h, http.MethodPost, "/simulation/tick", nil))
+	if got := len(body.HallCalls); got != 1 {
+		t.Fatalf("len(HallCalls) = %d want 1", got)
+	}
+	if got, want := string(body.HallCalls[0].Status), "waiting"; got != want {
+		t.Errorf("status = %s want %s", got, want)
+	}
+	if a := body.HallCalls[0].AssignedElevatorId; a != nil {
+		t.Errorf("assignedElevatorId = %s want null", *a)
+	}
+}
+
+func TestHandler_ListElevators(t *testing.T) {
+	h := newRouter(t)
+	body := decode[oapi.ElevatorsResponse](t, do(t, h, http.MethodGet, "/elevators", nil))
+	ids := make([]string, 0, len(body.Elevators))
+	for _, e := range body.Elevators {
+		ids = append(ids, e.Id)
+	}
+	if diff := cmp.Diff([]string{"ev-1", "ev-2"}, ids); diff != "" {
+		t.Errorf("ids mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestHandler_GetElevator(t *testing.T) {
+	h := newRouter(t)
+	rec := do(t, h, http.MethodGet, "/elevators/ev-2", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := decode[oapi.Elevator](t, rec)
+	type ck struct {
+		ID    string
+		Floor int
+	}
+	if diff := cmp.Diff(ck{"ev-2", 10}, ck{body.Id, body.CurrentFloor}); diff != "" {
+		t.Errorf("elevator mismatch (-want +got):\n%s", diff)
+	}
+
+	miss := do(t, h, http.MethodGet, "/elevators/ev-404", nil)
+	if miss.Code != http.StatusNotFound {
+		t.Errorf("unknown id status = %d want 404", miss.Code)
+	}
+	if got := errorCode(t, miss); got != "ELEVATOR_NOT_FOUND" {
+		t.Errorf("code = %s want ELEVATOR_NOT_FOUND", got)
+	}
+}
+
+func TestHandler_CreateElevator(t *testing.T) {
+	h := newRouter(t)
+	rec := do(t, h, http.MethodPost, "/elevators", map[string]any{"id": "ev-3", "initialFloor": 4})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	created := decode[oapi.Elevator](t, rec)
+	type ck struct {
+		ID        string
+		Floor     int
+		HomeFloor int
+	}
+	// homeFloor は initialFloor を引き継ぐ（NewElevator の既定）。
+	if diff := cmp.Diff(ck{"ev-3", 4, 4}, ck{created.Id, created.CurrentFloor, created.HomeFloor}); diff != "" {
+		t.Errorf("created mismatch (-want +got):\n%s", diff)
+	}
+
+	// 追加した号機は以降の配車対象になる。
+	listed := decode[oapi.ElevatorsResponse](t, do(t, h, http.MethodGet, "/elevators", nil))
+	if got := len(listed.Elevators); got != 3 {
+		t.Errorf("len(elevators) = %d want 3", got)
+	}
+
+	cases := []struct {
+		name     string
+		body     map[string]any
+		wantCode int
+	}{
+		{"duplicate id", map[string]any{"id": "ev-3", "initialFloor": 1}, http.StatusBadRequest},
+		{"empty id", map[string]any{"id": "", "initialFloor": 1}, http.StatusBadRequest},
+		{"floor out of range", map[string]any{"id": "ev-9", "initialFloor": 99}, http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := do(t, h, http.MethodPost, "/elevators", c.body)
+			if rec.Code != c.wantCode {
+				t.Errorf("status = %d want %d body=%s", rec.Code, c.wantCode, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandler_ListHallCalls(t *testing.T) {
+	h := newRouter(t)
+	do(t, h, http.MethodPost, "/floors/5/hall-calls", map[string]string{"direction": "up"})
+	do(t, h, http.MethodPost, "/floors/8/hall-calls", map[string]string{"direction": "down"})
+	// 8F の呼びをキャンセルして status 違いを作る。
+	listed := decode[oapi.HallCallsResponse](t, do(t, h, http.MethodGet, "/hall-calls", nil))
+	var canceledID string
+	for _, c := range listed.HallCalls {
+		if c.Floor == 8 {
+			canceledID = c.Id
+		}
+	}
+	if canceledID == "" {
+		t.Fatalf("8F の呼びが見つからない: %+v", listed.HallCalls)
+	}
+	do(t, h, http.MethodDelete, "/hall-calls/"+canceledID, nil)
+
+	cases := []struct {
+		name      string
+		query     string
+		wantCount int
+	}{
+		{"no filter returns canceled too", "", 2},
+		{"status filter", "?status=assigned", 1},
+		{"multiple statuses", "?status=assigned,canceled", 2},
+		{"floor filter", "?floor=8", 1},
+		{"floor with no calls", "?floor=2", 0},
+		{"status and floor", "?status=assigned&floor=8", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			body := decode[oapi.HallCallsResponse](t, do(t, h, http.MethodGet, "/hall-calls"+c.query, nil))
+			if got := len(body.HallCalls); got != c.wantCount {
+				t.Errorf("len = %d want %d (%+v)", got, c.wantCount, body.HallCalls)
+			}
+		})
+	}
+
+	bad := do(t, h, http.MethodGet, "/hall-calls?status=bogus", nil)
+	if bad.Code != http.StatusBadRequest {
+		t.Errorf("unknown status = %d want 400", bad.Code)
+	}
+	if got := errorCode(t, bad); got != "INVALID_REQUEST" {
+		t.Errorf("code = %s want INVALID_REQUEST", got)
+	}
+}
+
+func TestHandler_ListFloorHallCalls(t *testing.T) {
+	h := newRouter(t)
+	do(t, h, http.MethodPost, "/floors/5/hall-calls", map[string]string{"direction": "up"})
+
+	body := decode[oapi.FloorHallCallsResponse](t, do(t, h, http.MethodGet, "/floors/5/hall-calls", nil))
+	if diff := cmp.Diff(5, body.Floor); diff != "" {
+		t.Errorf("floor mismatch (-want +got):\n%s", diff)
+	}
+	if got := len(body.Calls); got != 1 {
+		t.Fatalf("len(calls) = %d want 1", got)
+	}
+
+	empty := decode[oapi.FloorHallCallsResponse](t, do(t, h, http.MethodGet, "/floors/6/hall-calls", nil))
+	if got := len(empty.Calls); got != 0 {
+		t.Errorf("len(calls) = %d want 0", got)
+	}
+
+	// 階そのものがリソースなので範囲外は空ではなく 400。
+	oor := do(t, h, http.MethodGet, "/floors/99/hall-calls", nil)
+	if oor.Code != http.StatusBadRequest {
+		t.Errorf("out of range status = %d want 400", oor.Code)
+	}
+	if got := errorCode(t, oor); got != "OUT_OF_RANGE" {
+		t.Errorf("code = %s want OUT_OF_RANGE", got)
 	}
 }

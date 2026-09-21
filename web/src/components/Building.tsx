@@ -32,6 +32,7 @@ export function Building({
             floor={f}
             range={range}
             elevators={state.elevators}
+            hallCalls={state.hallCalls}
             optimisticHall={optimisticHall}
             onHallPress={onHallPress}
           />

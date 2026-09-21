@@ -102,6 +102,23 @@
 - 割当済み `HallCall` の階で号機が開扉 → `served` に遷移
 - `served` 後に再度 tick しても多重遷移しない
 
+### 参照系・追加系（HTTP ハンドラ）
+- `GET /elevators` → `ElevatorID` 昇順
+- `GET /elevators/{id}` → 未知の ID は 404 `ELEVATOR_NOT_FOUND`
+- `POST /elevators` → 201。`homeFloor` は `initialFloor` を引き継ぐ。追加後は配車候補に入る
+- `POST /elevators` の異常系 → ID 重複・空 ID は 400 `INVALID_REQUEST`、範囲外階は 400 `OUT_OF_RANGE`
+- `GET /hall-calls` → 無指定は served / canceled も含む全件。`status` は複数指定可、未知の値は 400
+- `GET /hall-calls?floor=` → 絞り込みなので範囲外でも 0 件（エラーにしない）
+- `GET /floors/{floor}/hall-calls` → 階がリソースなので範囲外は 400 `OUT_OF_RANGE`
+
+### 再割当 (`behavior.md` §3.4)
+- 割当先が `stopped` になり他号機が居る → 次 tick でその号機に `assigned` し直し、`StopSchedule` にも積まれる
+- 引き受けられる号機がゼロ → `waiting` に戻るが呼びは残る（`HallCalls()` から消えない）
+- `waiting` のまま tick を重ねても状態は変わらない
+- 号機が `running` に復帰 → 次 tick で再び `assigned`
+- イベント: 再割当時は `HallCallReassigned{ElevatorID: 新号機}`、割当解除時は `ElevatorID` 空。
+  `waiting` 滞留中は毎 tick 発行しない
+
 ### `VisibleElevatorsFrom` (§ `domain.md` §10)
 - 範囲外 floor → `ErrInvalidFloor`
 - `operationState != running` → `unavailable`

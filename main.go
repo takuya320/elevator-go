@@ -48,6 +48,11 @@ func main() {
 		CancelHallCall:      usecase.NewCancelHallCall(repo, locker),
 		OpenDoor:            usecase.NewOpenDoor(repo, locker),
 		CloseDoor:           usecase.NewCloseDoor(repo, locker),
+		ListElevators:       usecase.NewListElevators(repo, locker),
+		GetElevator:         usecase.NewGetElevator(repo, locker),
+		AddElevator:         usecase.NewAddElevator(repo, locker),
+		ListHallCalls:       usecase.NewListHallCalls(repo, locker),
+		ListFloorHallCalls:  usecase.NewListFloorHallCalls(repo, locker),
 	}
 
 	// 初回リクエストまでに bank を初期化しておく。POST /simulation/reset と同じ経路を使う。

@@ -18,11 +18,16 @@ type HandlerDeps struct {
 	CancelHallCall      *usecase.CancelHallCall
 	OpenDoor            *usecase.OpenDoor
 	CloseDoor           *usecase.CloseDoor
+	ListElevators       *usecase.ListElevators
+	GetElevator         *usecase.GetElevator
+	AddElevator         *usecase.AddElevator
+	ListHallCalls       *usecase.ListHallCalls
+	ListFloorHallCalls  *usecase.ListFloorHallCalls
 }
 
-// 上書きしないメソッドは oapi.Unimplemented により 501 を返す。
+// oapi.ServerInterface は全メソッドを実装済み。埋め込みは残さない
+// （未実装を 501 で握り潰すと、生成後の取りこぼしに気付けなくなるため）。
 type Handler struct {
-	oapi.Unimplemented
 	deps HandlerDeps
 }
 
@@ -94,15 +99,64 @@ func (h *Handler) AdvanceTick(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	resp := oapi.SimulationTickResponse{
-		Tick:      out.Tick,
-		Elevators: make([]oapi.Elevator, 0, len(out.Elevators)),
-		Events:    eventsToOAPI(out.Events),
+	writeJSON(w, http.StatusOK, tickResponseToOAPI(out.Tick, out.Elevators, out.HallCalls, out.Events))
+}
+
+func (h *Handler) ListElevators(w http.ResponseWriter, r *http.Request) {
+	out, err := h.deps.ListElevators.Execute(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
 	}
-	for _, e := range out.Elevators {
-		resp.Elevators = append(resp.Elevators, elevatorToOAPI(e))
+	writeJSON(w, http.StatusOK, oapi.ElevatorsResponse{Elevators: elevatorsToOAPI(out)})
+}
+
+func (h *Handler) GetElevator(w http.ResponseWriter, r *http.Request, elevatorId oapi.ElevatorIdPath) {
+	out, err := h.deps.GetElevator.Execute(r.Context(), usecase.GetElevatorInput{ElevatorID: elevatorId})
+	if err != nil {
+		writeError(w, err)
+		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, elevatorToOAPI(*out))
+}
+
+func (h *Handler) CreateElevator(w http.ResponseWriter, r *http.Request) {
+	var body oapi.ElevatorCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeBadRequest(w, "invalid JSON body")
+		return
+	}
+	out, err := h.deps.AddElevator.Execute(r.Context(), usecase.AddElevatorInput{
+		ID:           body.Id,
+		InitialFloor: body.InitialFloor,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, elevatorToOAPI(*out))
+}
+
+func (h *Handler) ListHallCalls(w http.ResponseWriter, r *http.Request, params oapi.ListHallCallsParams) {
+	in := usecase.ListHallCallsInput{Floor: params.Floor}
+	if params.Status != nil {
+		in.Statuses = splitCSV(*params.Status)
+	}
+	out, err := h.deps.ListHallCalls.Execute(r.Context(), in)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, oapi.HallCallsResponse{HallCalls: hallCallsToOAPI(out)})
+}
+
+func (h *Handler) ListFloorHallCalls(w http.ResponseWriter, r *http.Request, floor oapi.FloorPath) {
+	out, err := h.deps.ListFloorHallCalls.Execute(r.Context(), usecase.ListFloorHallCallsInput{Floor: floor})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, oapi.FloorHallCallsResponse{Floor: floor, Calls: hallCallsToOAPI(out)})
 }
 
 // Stop / Resume は PatchElevator の薄いラッパー。

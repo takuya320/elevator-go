@@ -85,24 +85,37 @@ internal/
       visible_status.go
       repository.go
       errors.go
-      events.go            # MVP では空でも可
+      events.go
+      doc.go
   usecase/
     press_hall_button.go
     press_car_button.go
     advance_tick.go
     reset_simulation.go
     get_visible_elevators.go
+    get_state.go             # SSE 初期状態用（tick を進めない読み取り）
+    door_control.go          # OpenDoor / CloseDoor
+    patch_elevator.go
+    cancel_hall_call.go
+    clock.go                 # Port: Clock / SimulationClock
+    simulation_clock.go
+    id_generator.go          # Port: IDGenerator
+    locker.go                # Port: Locker
+    dto.go
   interface/http/
-    handler/
-    presenter/
-    request/
-    response/
+    oapi/                    # OpenAPI 生成コード
+    server/                  # handler / router / errors / convert / SSE / static
   infrastructure/
     persistence/memory/
       elevator_bank_repository.go
+      simulation_clock.go
     clock/
     id/
+    sync/                    # Locker の mutex 実装
 ```
+
+Presenter / request / response は別パッケージに切らず、`server` 内の `convert.go`（DTO → 生成型）
+と `errors.go`（ドメイン sentinel → HTTP）に寄せている。
 
 ---
 
@@ -377,6 +390,9 @@ const (
 
 ### HallCallStatus
 
+`waiting` は「登録済みだが引き受ける号機が居ない」状態。新規受付では発生せず、
+割当先が停止して代わりも居ないときだけ現れる（`docs/behavior.md` §1.3, §3.4）。
+
 ```go
 type HallCallStatus string
 
@@ -425,14 +441,23 @@ type Elevator struct {
     doorState      DoorState
     operationState OperationState
     stopSchedule   StopSchedule
+    holdOpen          bool   // 「開」ボタン保持中。move も自動閉扉もしない
+    doorDwell         int    // 自動閉扉までに扉を開いたまま残す tick 数
+    homeFloor         Floor  // 自動帰還の対象階。既定は initialFloor
+    autoReturnEnabled bool
 }
 ```
 
 ### 責務（自分自身の状態遷移のみ）
 
-- `AddDestination(Floor)` — 行き先追加（同階なら開扉、`running` 以外なら拒否）
-- `AdvanceOneTick()` — 1 tick 分の状態遷移（ドア閉→1 階移動→到着なら開扉）
-- ドア開閉、方向再計算は内部メソッド
+- `AddDestination(Floor)` — 行き先追加（同階なら即時開扉、`running` 以外なら拒否）
+- `AdvanceOneTick()` — 1 tick 分の状態遷移（dwell 消費 → 自動閉扉 → 自動帰還の積み直し → 1 階移動 → 到着なら開扉）
+- `OpenDoor()` / `CloseDoor()` — 「開」「閉」ボタン。dwell を 0 に戻して hold-open を切り替える
+- `SetOperationState()` — 管理操作。schedule と direction は保持する
+- 方向再計算、到着時の開扉は内部メソッド
+
+`doorDwell` と `holdOpen` は別概念。前者は到着後に自動で閉まるまでの猶予（tick 数）、
+後者は「閉」が押されるまで無期限に開けておく意思表示。
 
 `ElevatorBank` をまたがる判断（割当・重複検知）は持たせない。
 
@@ -502,9 +527,14 @@ type ElevatorBank struct {
 ### `AdvanceOneTick` の手続き
 
 ```text
-1. すべての Elevator に AdvanceOneTick を委譲
-2. assigned な HallCall について「割当エレベーターが該当階で開扉」なら MarkServed
+1. reassignHallCalls()
+   割当先が非 running な active HallCall を振り直す。候補が無ければ waiting に戻して保持
+2. すべての Elevator に AdvanceOneTick を委譲
+3. assigned な HallCall について「割当エレベーターが該当階で開扉」なら MarkServed
 ```
+
+1 を号機の移動より先に置くのは、振り直した号機がその tick から動き出せるようにするため。
+詳細と割り切り（停止号機の schedule を消さない理由）は `docs/behavior.md` §3.4。
 
 ---
 
@@ -518,11 +548,15 @@ type DispatchPolicy interface {
 }
 ```
 
-### MVP 実装: NearestElevatorPolicy
+### 実装: NearestAvailableElevatorPolicy
 
-`running` のエレベーターのうち、現在階と呼び出し階の絶対距離が最小のものを選ぶ。候補なしなら `ErrNoAvailableElevator`。
+`running` のエレベーターを候補に、**進行方向の整合 → 距離最小 → idle 優先 → `ElevatorID` 昇順**
+の順で決定論的に選ぶ。整合の定義と全ルールは `docs/behavior.md` §3.2。候補なしなら `ErrNoAvailableElevator`。
 
-将来候補: 進行方向考慮、待ち時間最小化、SCAN/LOOK アルゴリズム。
+同階で逆方向の呼びを背負っている号機の除外は policy ではなく集約側（`dispatchCandidates`）で行う。
+policy は純粋関数に保ち、ログから配車決定が再現できるようにしている。
+
+将来候補: 待ち時間最小化、混雑度（`StopSchedule` 量）考慮、SCAN/LOOK による先読み。
 
 ---
 
@@ -543,12 +577,13 @@ const (
     VisibleStatusUnavailable VisibleElevatorStatus = "unavailable"
 )
 
-type FloorVisibleElevator struct {
-    ElevatorID    ElevatorID
-    CurrentFloor  Floor
-    Direction     Direction
-    DoorState     DoorState
-    VisibleStatus VisibleElevatorStatus
+type VisibleElevator struct {
+    ElevatorID     ElevatorID
+    CurrentFloor   Floor
+    Direction      Direction
+    DoorState      DoorState
+    OperationState OperationState
+    VisibleStatus  VisibleElevatorStatus
 }
 ```
 
@@ -584,13 +619,19 @@ MVP では「建物 1 棟」前提で ID なし。複数棟対応時に `Buildin
 
 「API 操作 1 個 = UseCase 1 個」で対応させる。
 
-| UseCase                     | Input (DTO)                                    | Output (DTO)               |
-|---------------------------|-------------------------------------------------|--------------------------|
-| `PressHallButtonUseCase`    | `{Floor int, Direction string}`                  | `{CallID, Floor, Direction, Status, AssignedElevatorID}` |
-| `PressCarButtonUseCase`     | `{ElevatorID string, DestinationFloor int}`      | `error` のみ（成功時は値なし）  |
-| `AdvanceTickUseCase`        | なし                                              | tick 結果（任意）         |
-| `GetVisibleElevatorsUseCase`| `{Floor int}`                                    | `{Floor, []VisibleElevatorOutput}` |
-| `ResetSimulationUseCase`    | `{FloorRange, ElevatorCount}`                    | 初期化結果                |
+型名は `UseCase` サフィックスを付けず、操作名そのまま（`usecase.PressHallButton` 等）にしている。
+
+| UseCase                | Input (DTO)                                      | Output (DTO)               |
+|------------------------|--------------------------------------------------|--------------------------|
+| `PressHallButton`      | `{Floor int, Direction string}`                   | `{CallID, Floor, Direction, Status, AssignedElevatorID, CreatedAt}` |
+| `PressCarButton`       | `{ElevatorID string, DestinationFloor int}`       | `error` のみ（成功時は値なし）  |
+| `AdvanceTick`          | なし                                               | `{Tick, []ElevatorSnapshot, []DomainEvent}` |
+| `GetState`             | なし                                               | `{Tick, []ElevatorSnapshot}`（tick を進めない） |
+| `GetVisibleElevators`  | `{Floor int}`                                     | `{Floor, []VisibleElevatorOutput}` |
+| `ResetSimulation`      | `{FloorRange?, []ElevatorInit?}`（省略時は既定値）      | `{FloorRange, []ElevatorInit}` |
+| `PatchElevator`        | `{ElevatorID, CurrentFloor?, Direction?, DoorState?, OperationState?, HomeFloor?, AutoReturnEnabled?}` | `ElevatorSnapshot` |
+| `OpenDoor` / `CloseDoor` | `elevatorID string`                             | `ElevatorSnapshot`        |
+| `CancelHallCall`       | `{CallID string}`                                 | `error` のみ              |
 
 UseCase の責務:
 
@@ -602,7 +643,7 @@ UseCase の責務:
 
 ドメインルールは UseCase に書かない。
 
-> **HTTP レスポンス組み立て**: `PressCarButtonUseCase` のように出力 DTO を持たない UseCase でも、HTTP 層では固定形式 (`{elevatorId, destinationFloor, status: "accepted"}` 等) のレスポンスを返す。これは Presenter / Handler の責務として組み立て、UseCase 自体には持ち込まない。
+> **HTTP レスポンス組み立て**: `PressCarButton` のように出力 DTO を持たない UseCase でも、HTTP 層では固定形式 (`{elevatorId, destinationFloor, status: "accepted"}` 等) のレスポンスを返す。これは Presenter / Handler の責務として組み立て、UseCase 自体には持ち込まない。
 
 ---
 
@@ -643,30 +684,51 @@ var (
 
 ---
 
-## 14. Domain Event（後回し）
+## 14. Domain Event
 
-MVP では発行しない。将来の通知・ログ向けにシグネチャだけ定義しておく。
+`ElevatorBank` が集約内で溜め、`DrainEvents()` で取り出す。UseCase が drain して出力 DTO に載せ、
+HTTP / SSE へ流す。`EventName()` の文字列はそのまま API 上の event type になるため、変更は公開契約の破壊。
 
 ```go
 type DomainEvent interface{ EventName() string }
 
-type HallCallRequested struct{ CallID HallCallID; Floor Floor; Direction Direction }
-type HallCallAssigned  struct{ CallID HallCallID; ElevatorID ElevatorID }
-type ElevatorArrived   struct{ ElevatorID ElevatorID; Floor Floor }
-type DoorOpened        struct{ ElevatorID ElevatorID; Floor Floor }
+type HallCallRequested struct{ CallID HallCallID; Floor Floor; Direction Direction; ElevatorID ElevatorID } // hall_call.requested
+type HallCallServed    struct{ CallID HallCallID; Floor Floor; ElevatorID ElevatorID }                      // hall_call.served
+type HallCallCanceled  struct{ CallID HallCallID }                                                          // hall_call.canceled
+type HallCallReassigned struct{ CallID HallCallID; Floor Floor; Direction Direction; ElevatorID ElevatorID } // hall_call.reassigned
+type CarCallRequested  struct{ ElevatorID ElevatorID; Floor Floor }                                         // car_call.requested
+type ElevatorArrived   struct{ ElevatorID ElevatorID; Floor Floor }                                         // elevator.arrived
+type ElevatorStateChanged struct{ ElevatorID ElevatorID; From, To OperationState }                          // elevator.state_changed
 ```
+
+割当は `HallCallRequested.ElevatorID` に含めるので、`HallCallAssigned` は別イベントにしていない
+（`PressHallButton` が受付と同時に割当まで進める設計のため）。`HallCallReassigned` の
+`ElevatorID` が空文字なら「引き受けられる号機が無く waiting に戻った」ことを表す
+（API では `elevatorId` フィールドごと省略される）。drain は破壊的で、
+手動 tick のイベントはその HTTP レスポンスにのみ現れる（`docs/behavior.md` §4.3）。
 
 ---
 
 ## 15. API ⇄ UseCase ⇄ Domain 対応表
 
-| API                                    | UseCase                       | Domain メソッド                         |
-|----------------------------------------|-------------------------------|---------------------------------------|
-| `GET /floors/{floor}/elevators`        | `GetVisibleElevatorsUseCase`  | `ElevatorBank.VisibleElevatorsFrom`   |
-| `POST /floors/{floor}/hall-calls`      | `PressHallButtonUseCase`      | `ElevatorBank.PressHallButton`        |
-| `POST /elevators/{id}/car-calls`       | `PressCarButtonUseCase`       | `ElevatorBank.PressCarButton`         |
-| `POST /simulation/tick`                | `AdvanceTickUseCase`          | `ElevatorBank.AdvanceOneTick`         |
-| `POST /simulation/reset`               | `ResetSimulationUseCase`      | `NewElevatorBank`                     |
+| API                                    | UseCase                  | Domain メソッド                         |
+|----------------------------------------|--------------------------|---------------------------------------|
+| `GET /floors/{floor}/elevators`        | `GetVisibleElevators`    | `ElevatorBank.VisibleElevatorsFrom`   |
+| `POST /floors/{floor}/hall-calls`      | `PressHallButton`        | `ElevatorBank.PressHallButton`        |
+| `POST /elevators/{id}/car-calls`       | `PressCarButton`         | `ElevatorBank.PressCarButton`         |
+| `PATCH /elevators/{id}`                | `PatchElevator`          | `ElevatorBank.PatchElevator`          |
+| `POST /elevators/{id}/doors/open`      | `OpenDoor`               | `ElevatorBank.OpenDoor`               |
+| `POST /elevators/{id}/doors/close`     | `CloseDoor`              | `ElevatorBank.CloseDoor`              |
+| `POST /elevators/{id}/stop` ・ `/resume` | `PatchElevator`        | `ElevatorBank.PatchElevator`（`operationState` のみ指定） |
+| `DELETE /hall-calls/{callId}`          | `CancelHallCall`         | `ElevatorBank.CancelHallCall`         |
+| `POST /simulation/tick`                | `AdvanceTick`            | `ElevatorBank.AdvanceOneTick`         |
+| `POST /simulation/reset`               | `ResetSimulation`        | `NewElevatorBank`                     |
+| `GET /events`（SSE 初期状態）             | `GetState`               | 読み取りのみ（tick を進めない）             |
+| `GET /elevators`                       | `ListElevators`          | `ElevatorBank.Elevators`              |
+| `GET /elevators/{id}`                  | `GetElevator`            | `ElevatorBank.Elevator`               |
+| `POST /elevators`                      | `AddElevator`            | `ElevatorBank.AddElevator`            |
+| `GET /hall-calls`                      | `ListHallCalls`          | `ElevatorBank.HallCalls`（絞り込みは UseCase） |
+| `GET /floors/{floor}/hall-calls`       | `ListFloorHallCalls`     | `ElevatorBank.HallCalls` + `Spec.Contains` |
 
 ---
 
@@ -685,34 +747,36 @@ type DoorOpened        struct{ ElevatorID ElevatorID; Floor Floor }
 
 ---
 
-## 17. MVP スコープ
+## 17. 実装スコープ
 
-実装する最小セット:
+実装済み:
 
 ```text
 VO:        Floor, ElevatorID, HallCallID, Direction, DoorState,
            OperationState, HallCallStatus, StopSchedule, BuildingSpec
 Entity:    Elevator, HallCall
 Root:      ElevatorBank
-Service:   DispatchPolicy + NearestElevatorPolicy
+Service:   DispatchPolicy + NearestAvailableElevatorPolicy
 Repo:      ElevatorBankRepository (memory 実装)
-Read:      FloorVisibleElevator, VisibleElevatorStatus
-UseCase:   PressHallButton / PressCarButton / AdvanceTick / GetVisibleElevators
-Handler:   API §4.1 の MVP 4 本
+Read:      VisibleElevator, VisibleElevatorStatus
+Event:     DomainEvent 6 種（§14）
+UseCase:   PressHallButton / PressCarButton / AdvanceTick / GetVisibleElevators /
+           GetState / ResetSimulation / PatchElevator / OpenDoor / CloseDoor /
+           CancelHallCall / ListElevators / GetElevator / AddElevator /
+           ListHallCalls / ListFloorHallCalls
+Handler:   API §4.2 の 16 本すべて
 ```
 
-スコープ外（後続）:
-- Domain Event 発行
+未実装:
 - ドアの多段遷移 (`opening`/`closing`)
-- `PATCH /elevators/{id}` などの管理 API
 - 複数棟対応 (`BuildingID`)
-- 進行方向を考慮した配車アルゴリズム
+- 待ち時間最小化・混雑度考慮の配車（進行方向の整合は実装済み。§9）
 
 ---
 
-## 18. 既存コードからの差分
+## 18. 旧 `elevator/` パッケージからの移行（完了）
 
-現状 (`elevator/elevator.go`) は以下の点でこの設計と乖離している。MVP 実装時に解消する。
+トップ階層にあった旧 `elevator` パッケージは本設計へ置き換え済み。以下は移行内容の記録。
 
 | 既存                                              | 本設計                                              |
 |------------------------------------------------|-------------------------------------------------|
@@ -724,4 +788,4 @@ Handler:   API §4.1 の MVP 4 本
 | `HallCall` / `StopSchedule` が概念として存在しない          | Entity / VO として明示化                              |
 | 範囲外検証は `FloorRange.Contains`                    | `BuildingSpec.Contains` / `CanCall` に集約          |
 
-書き換えではなく `internal/domain/elevator` を新設し、現 `elevator/` パッケージは段階的に置き換える方針。
+`internal/domain/elevator` を新設して移行し、旧 `elevator/` パッケージは削除した。
