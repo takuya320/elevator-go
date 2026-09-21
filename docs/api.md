@@ -128,6 +128,8 @@ Go の定数定義と 1:1 対応。
 ### 4.2 全エンドポイントと実装状況
 
 未実装のものはハンドラを持たず `oapi.Unimplemented` 経由で 501 を返す。
+**実装状況を書くのはこの一覧だけ**（§5 以降は契約の説明に徹する）。ここが嘘にならないよう
+`TestHandler_AdminUnimplemented` が 5 本すべての 501 を固定している。
 
 ```text
 GET    /elevators                            501 未実装
@@ -151,6 +153,12 @@ DELETE /hall-calls/{callId}
 POST   /simulation/tick
 POST   /simulation/reset
 ```
+
+未実装ぶんの代替手段:
+
+- 号機の現在状態を見る → `GET /events`（SSE）または `POST /simulation/tick` のレスポンス
+- ホール呼びを見る → 同レスポンスの `hallCalls`（active な呼び）
+- 号機を増減する → 起動時 env `ELEVATOR_COUNT`、または `POST /simulation/reset`
 
 OpenAPI に定義のない配信系が 3 本ある。
 
@@ -265,8 +273,6 @@ n 階にいる人から見えるエレベーター一覧。
 
 ### 6.1 GET `/elevators`
 
-> **未実装**（501）。現在状態は `GET /events` か `POST /simulation/tick` のレスポンスで取れる。
-
 全エレベーター一覧。
 
 **Response 200**
@@ -275,8 +281,6 @@ n 階にいる人から見えるエレベーター一覧。
 ```
 
 ### 6.2 POST `/elevators`
-
-> **未実装**（501）。台数は起動時 env（`ELEVATOR_COUNT`）か `POST /simulation/reset` で決める。
 
 エレベーター追加（シミュレーター用）。
 
@@ -294,8 +298,6 @@ n 階にいる人から見えるエレベーター一覧。
 **Response 201**: `Elevator`
 
 ### 6.3 GET `/elevators/{elevatorId}`
-
-> **未実装**（501）。
 
 詳細取得。**Response 200**: `Elevator`
 
@@ -343,8 +345,6 @@ n 階にいる人から見えるエレベーター一覧。
 
 ### 7.1 GET `/hall-calls`
 
-> **未実装**（501）。割当済みの呼びは `Elevator.assignedHallCalls` から取れる。
-
 **Query**
 - `status` (任意): `waiting` / `assigned` / `served` / `canceled`（カンマ区切り可）
 - `floor` (任意): int
@@ -352,8 +352,6 @@ n 階にいる人から見えるエレベーター一覧。
 **Response 200**: `{ "hallCalls": HallCall[] }`
 
 ### 7.2 GET `/floors/{floor}/hall-calls`
-
-> **未実装**（501）。
 
 特定階の呼び一覧。**Response 200**: `{ "floor": 5, "calls": HallCall[] }`
 

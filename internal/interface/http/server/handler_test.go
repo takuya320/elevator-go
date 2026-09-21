@@ -466,10 +466,26 @@ func TestHandler_OpenAPISpec(t *testing.T) {
 
 func TestHandler_AdminUnimplemented(t *testing.T) {
 	// OpenAPI 上は定義済みだがハンドラ未実装のものは Unimplemented 経由で 501。
+	// docs/api.md §4.2 の「501 未実装」一覧はコードから導出できる事実の写しなので、
+	// 実装したらこのテストが落ちて記述の更新を強制するよう全件を並べる。
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/elevators"},
+		{http.MethodPost, "/elevators"},
+		{http.MethodGet, "/elevators/ev-1"},
+		{http.MethodGet, "/floors/1/hall-calls"},
+		{http.MethodGet, "/hall-calls"},
+	}
 	h := newRouter(t)
-	rec := do(t, h, http.MethodGet, "/elevators", nil)
-	if diff := cmp.Diff(http.StatusNotImplemented, rec.Code); diff != "" {
-		t.Errorf("status mismatch (-want +got):\n%s", diff)
+	for _, c := range cases {
+		t.Run(c.method+" "+c.path, func(t *testing.T) {
+			rec := do(t, h, c.method, c.path, nil)
+			if diff := cmp.Diff(http.StatusNotImplemented, rec.Code); diff != "" {
+				t.Errorf("status mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
