@@ -5,7 +5,7 @@
 
 ## このプロジェクト
 
-Go 製のエレベーター運行シミュレータ。OpenAPI 定義 → chi で配信、DDD + クリーンアーキテクチャでドメイン層を組んだもの。OpenAPI 上の 16 operation のうち 11 実装済み（フロアからのエレベーター取得・ホール呼び・かご内行先・ドア開閉・stop/resume・PATCH・ホール呼びキャンセル・tick・reset）。未実装は参照系 4 本（`GET /elevators`、`GET /elevators/{elevatorId}`、`GET /hall-calls`、`GET /floors/{floor}/hall-calls`）と `POST /elevators` で、`oapi.Unimplemented` 経由で 501。
+Go 製のエレベーター運行シミュレータ。OpenAPI 定義 → chi で配信、DDD + クリーンアーキテクチャでドメイン層を組んだもの。OpenAPI 上の 16 operation はすべて実装済み。
 
 ## 厳守ルール
 
@@ -42,7 +42,7 @@ elevator-go/
 │                                        (pnpm run build → server/webdist/)
 ├── internal/
 │   ├── domain/elevator/                 Entity / VO / 集約 / Domain Service
-│   ├── usecase/                         Port + 5 UseCase + GetState
+│   ├── usecase/                         Port + 各 API 操作に対応する UseCase
 │   ├── infrastructure/
 │   │   ├── clock/, id/, sync/           各 Port の実装
 │   │   └── persistence/memory/          in-memory repo + simulation clock
@@ -109,7 +109,7 @@ cd web && pnpm run build       # フロントビルド（webdist/ に出力、go
 
 ## やらないこと
 
-- 未実装機能を「実装した」と書かない。`oapi.Unimplemented` が 501 を返している箇所を上書きしていないなら未実装。
+- 未実装機能を「実装した」と書かない。`Handler` は `oapi.Unimplemented` を埋め込まないので、OpenAPI に operation を足したらハンドラを書くまでコンパイルが通らない。この検出を殺すので埋め込みを復活させない。
 - 不要な抽象を増やさない（型 alias、薄い wrapper interface など）。実際にやらかして user から「indirection が読みにくい」と言われたことがある。
 - 防御的分岐を増やさない。集約 / Port が保証する不変条件を信用する（ドメイン内で意図的に残した「防御的:」コメント付き分岐は許容）。
 - 既存の方針を変える前にユーザに相談する。

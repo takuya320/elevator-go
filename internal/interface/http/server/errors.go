@@ -24,6 +24,7 @@ var errorMapping = []struct {
 	{elevator.ErrInvalidDirection, http.StatusBadRequest, oapi.INVALIDREQUEST},
 	{elevator.ErrInvalidDoorState, http.StatusBadRequest, oapi.INVALIDREQUEST},
 	{elevator.ErrInvalidOperationState, http.StatusBadRequest, oapi.INVALIDREQUEST},
+	{elevator.ErrInvalidHallCallStatus, http.StatusBadRequest, oapi.INVALIDREQUEST},
 	{elevator.ErrElevatorAlreadyExists, http.StatusBadRequest, oapi.INVALIDREQUEST},
 	{elevator.ErrElevatorNotFound, http.StatusNotFound, oapi.ELEVATORNOTFOUND},
 	{elevator.ErrHallCallNotFound, http.StatusNotFound, oapi.CALLNOTFOUND},

@@ -125,16 +125,15 @@ Go の定数定義と 1:1 対応。
 | POST   | `/elevators/{elevatorId}/car-calls`   | 車内の行き先ボタン押下             |
 | POST   | `/simulation/tick`                    | シミュレーションを 1 ステップ進める   |
 
-### 4.2 全エンドポイントと実装状況
+### 4.2 全エンドポイント
 
-未実装のものはハンドラを持たず `oapi.Unimplemented` 経由で 501 を返す。
-**実装状況を書くのはこの一覧だけ**（§5 以降は契約の説明に徹する）。ここが嘘にならないよう
-`TestHandler_AdminUnimplemented` が 5 本すべての 501 を固定している。
+OpenAPI 上の 16 operation はすべて実装済み。`Handler` は `oapi.Unimplemented` を
+埋め込まないので、生成後にメソッドを取りこぼすとコンパイルエラーになる。
 
 ```text
-GET    /elevators                            501 未実装
-POST   /elevators                            501 未実装
-GET    /elevators/{elevatorId}               501 未実装
+GET    /elevators
+POST   /elevators
+GET    /elevators/{elevatorId}
 PATCH  /elevators/{elevatorId}
 
 POST   /elevators/{elevatorId}/car-calls
@@ -144,21 +143,15 @@ POST   /elevators/{elevatorId}/stop
 POST   /elevators/{elevatorId}/resume
 
 GET    /floors/{floor}/elevators
-GET    /floors/{floor}/hall-calls            501 未実装
+GET    /floors/{floor}/hall-calls
 POST   /floors/{floor}/hall-calls
 
-GET    /hall-calls                           501 未実装
+GET    /hall-calls
 DELETE /hall-calls/{callId}
 
 POST   /simulation/tick
 POST   /simulation/reset
 ```
-
-未実装ぶんの代替手段:
-
-- 号機の現在状態を見る → `GET /events`（SSE）または `POST /simulation/tick` のレスポンス
-- ホール呼びを見る → 同レスポンスの `hallCalls`（active な呼び）
-- 号機を増減する → 起動時 env `ELEVATOR_COUNT`、または `POST /simulation/reset`
 
 OpenAPI に定義のない配信系が 3 本ある。
 
@@ -273,7 +266,7 @@ n 階にいる人から見えるエレベーター一覧。
 
 ### 6.1 GET `/elevators`
 
-全エレベーター一覧。
+全エレベーター一覧。`ElevatorID` の昇順。
 
 **Response 200**
 ```json
@@ -282,24 +275,34 @@ n 階にいる人から見えるエレベーター一覧。
 
 ### 6.2 POST `/elevators`
 
-エレベーター追加（シミュレーター用）。
+エレベーター追加（シミュレーター用）。追加した号機は次の配車から候補に入る。
 
 **Request**
 ```json
 {
   "id": "ev-3",
-  "initialFloor": 1,
-  "floorRange": { "min": -2, "max": 20 }
+  "initialFloor": 1
 }
 ```
 
-`floorRange` を省略した場合、システムデフォルト値を使用。
+階範囲は**建物共通**（`BuildingSpec`）で号機ごとには持たない。スキップフロア・専用号機は
+`docs/behavior.md` §5 でスコープ外としているため、リクエストで号機ごとの `floorRange` は
+受け付けない。範囲を変えるときは `POST /simulation/reset`。
+
+`homeFloor` は `initialFloor` を引き継ぎ、`autoReturnEnabled` は false で始まる。変更は
+`PATCH /elevators/{id}`。
 
 **Response 201**: `Elevator`
 
+| 条件                     | ステータス | code               |
+|------------------------|--------|--------------------|
+| `id` が既存と重複          | 400    | `INVALID_REQUEST`  |
+| `id` が空                | 400    | `INVALID_REQUEST`  |
+| `initialFloor` が範囲外    | 400    | `OUT_OF_RANGE`     |
+
 ### 6.3 GET `/elevators/{elevatorId}`
 
-詳細取得。**Response 200**: `Elevator`
+詳細取得。**Response 200**: `Elevator` / 未知の ID は 404 `ELEVATOR_NOT_FOUND`。
 
 ### 6.4 PATCH `/elevators/{elevatorId}`
 
@@ -345,15 +348,23 @@ n 階にいる人から見えるエレベーター一覧。
 
 ### 7.1 GET `/hall-calls`
 
-**Query**
-- `status` (任意): `waiting` / `assigned` / `served` / `canceled`（カンマ区切り可）
-- `floor` (任意): int
+保持している全呼びからの横断検索。**`served` / `canceled` も消さずに残している**ので、
+無指定だとシミュレーション開始以降の全件が返る。点灯中のボタンだけが欲しいなら
+`?status=waiting,assigned`。
 
-**Response 200**: `{ "hallCalls": HallCall[] }`
+**Query**
+- `status` (任意): `waiting` / `assigned` / `served` / `canceled`（カンマ区切り可）。
+  未知の値は 400 `INVALID_REQUEST`
+- `floor` (任意): int。ここは絞り込みなので範囲外でもエラーにせず 0 件を返す
+
+**Response 200**: `{ "hallCalls": HallCall[] }`（`HallCallID` の昇順）
 
 ### 7.2 GET `/floors/{floor}/hall-calls`
 
-特定階の呼び一覧。**Response 200**: `{ "floor": 5, "calls": HallCall[] }`
+特定階の呼び一覧（status での絞り込みなし）。**Response 200**: `{ "floor": 5, "calls": HallCall[] }`
+
+こちらは階そのものがリソースなので、範囲外の階は空配列ではなく 400 `OUT_OF_RANGE`。
+§7.1 の `?floor=` が絞り込みなのと扱いが違う。
 
 ### 7.3 DELETE `/hall-calls/{callId}`
 
@@ -440,6 +451,9 @@ body を空（`Content-Length: 0`）で呼んでも同じ既定値が適用さ�
 | `ElevatorBank.CancelHallCall`    | `DELETE /hall-calls/{callId}`                                 |
 | `ElevatorBank.AdvanceOneTick`    | `POST /simulation/tick`、および auto-ticker → `GET /events`      |
 | `ElevatorBank.VisibleElevatorsFrom` | `GET /floors/{floor}/elevators`                            |
+| `ElevatorBank.Elevators` / `Elevator` | `GET /elevators` ・ `GET /elevators/{id}`                  |
+| `ElevatorBank.AddElevator`       | `POST /elevators`                                             |
+| `ElevatorBank.HallCalls`         | `GET /hall-calls` ・ `GET /floors/{floor}/hall-calls`          |
 
 ---
 

@@ -267,6 +267,9 @@ paths:
   /hall-calls:
     get:
       summary: ホール呼び一覧（横断検索）
+      description: >-
+        served / canceled も含めて保持している全件から絞り込む。
+        点灯中のボタンだけが欲しい場合は status=waiting,assigned を指定する。
       operationId: listHallCalls
       tags: [admin]
       parameters:
@@ -277,7 +280,7 @@ paths:
             type: string
           description: |
             `HallCallStatus` をカンマ区切りで指定して絞り込む。
-            例: `waiting,assigned`
+            例: `waiting,assigned`。未知の値は 400 INVALID_REQUEST。
         - in: query
           name: floor
           required: false
@@ -290,6 +293,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HallCallsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 
   /hall-calls/{callId}:
     parameters:
@@ -544,6 +549,10 @@ components:
     ElevatorCreateRequest:
       type: object
       required: [id, initialFloor]
+      description: >-
+        階範囲は建物共通（BuildingSpec）で号機ごとには持たない。
+        スキップフロア・専用号機は docs/behavior.md §5 でスコープ外としているため、
+        号機ごとの floorRange は受け付けない。範囲を変えるときは POST /simulation/reset。
       properties:
         id:
           type: string
@@ -551,8 +560,6 @@ components:
         initialFloor:
           type: integer
           example: 1
-        floorRange:
-          $ref: '#/components/schemas/FloorRange'
 
     ElevatorPatchRequest:
       type: object

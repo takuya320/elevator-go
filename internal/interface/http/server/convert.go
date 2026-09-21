@@ -1,6 +1,8 @@
 package server
 
 import (
+	"strings"
+
 	"elevator-go/internal/interface/http/oapi"
 	"elevator-go/internal/usecase"
 )
@@ -126,6 +128,26 @@ func eventsToOAPI(events []usecase.EventSnapshot) []oapi.SimulationEvent {
 	out := make([]oapi.SimulationEvent, 0, len(events))
 	for _, e := range events {
 		out = append(out, eventToOAPI(e))
+	}
+	return out
+}
+
+func elevatorsToOAPI(snaps []usecase.ElevatorSnapshot) []oapi.Elevator {
+	out := make([]oapi.Elevator, 0, len(snaps))
+	for _, s := range snaps {
+		out = append(out, elevatorToOAPI(s))
+	}
+	return out
+}
+
+// クエリの "waiting,assigned" を分解する。空要素・前後の空白は落とす。
+func splitCSV(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
 	}
 	return out
 }

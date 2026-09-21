@@ -11,6 +11,7 @@ var (
 	ErrInvalidDirection         = errors.New("invalid direction")
 	ErrInvalidDoorState         = errors.New("invalid door state")
 	ErrInvalidOperationState    = errors.New("invalid operation state")
+	ErrInvalidHallCallStatus    = errors.New("invalid hall call status")
 	ErrElevatorNotFound         = errors.New("elevator not found")
 	ErrElevatorAlreadyExists    = errors.New("elevator already exists")
 	ErrHallCallNotFound         = errors.New("hall call not found")

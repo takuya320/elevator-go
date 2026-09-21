@@ -724,6 +724,11 @@ type ElevatorStateChanged struct{ ElevatorID ElevatorID; From, To OperationState
 | `POST /simulation/tick`                | `AdvanceTick`            | `ElevatorBank.AdvanceOneTick`         |
 | `POST /simulation/reset`               | `ResetSimulation`        | `NewElevatorBank`                     |
 | `GET /events`（SSE 初期状態）             | `GetState`               | 読み取りのみ（tick を進めない）             |
+| `GET /elevators`                       | `ListElevators`          | `ElevatorBank.Elevators`              |
+| `GET /elevators/{id}`                  | `GetElevator`            | `ElevatorBank.Elevator`               |
+| `POST /elevators`                      | `AddElevator`            | `ElevatorBank.AddElevator`            |
+| `GET /hall-calls`                      | `ListHallCalls`          | `ElevatorBank.HallCalls`（絞り込みは UseCase） |
+| `GET /floors/{floor}/hall-calls`       | `ListFloorHallCalls`     | `ElevatorBank.HallCalls` + `Spec.Contains` |
 
 ---
 
@@ -757,12 +762,12 @@ Read:      VisibleElevator, VisibleElevatorStatus
 Event:     DomainEvent 6 種（§14）
 UseCase:   PressHallButton / PressCarButton / AdvanceTick / GetVisibleElevators /
            GetState / ResetSimulation / PatchElevator / OpenDoor / CloseDoor /
-           CancelHallCall
-Handler:   API §4.2 のうち 501 印のない 11 本
+           CancelHallCall / ListElevators / GetElevator / AddElevator /
+           ListHallCalls / ListFloorHallCalls
+Handler:   API §4.2 の 16 本すべて
 ```
 
 未実装:
-- 参照系エンドポイント（`GET /elevators`、`GET /elevators/{id}`、`GET /hall-calls`、`GET /floors/{floor}/hall-calls`）と `POST /elevators`
 - ドアの多段遷移 (`opening`/`closing`)
 - 複数棟対応 (`BuildingID`)
 - 待ち時間最小化・混雑度考慮の配車（進行方向の整合は実装済み。§9）

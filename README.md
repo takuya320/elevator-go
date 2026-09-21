@@ -58,10 +58,13 @@ docker compose down               # 停止
 - `POST /elevators/{elevatorId}/stop` ・ `.../resume` … 運転停止・再開
 - `PATCH /elevators/{elevatorId}` … 状態の手動更新（ホーム階・自動帰還の切替を含む）
 - `DELETE /hall-calls/{callId}` … ホール呼びのキャンセル
+- `GET /elevators` ・ `GET /elevators/{elevatorId}` … 号機の一覧・詳細
+- `POST /elevators` … 号機を追加（次の配車から候補に入る）
+- `GET /hall-calls` ・ `GET /floors/{floor}/hall-calls` … ホール呼びの横断検索・階別一覧
 - `POST /simulation/tick` … 手動で 1 tick 進める
 - `POST /simulation/reset` … リセット
 
-未実装は参照系 4 本（`GET /elevators`、`GET /elevators/{elevatorId}`、`GET /hall-calls`、`GET /floors/{floor}/hall-calls`）と `POST /elevators`。OpenAPI には定義してあるが、呼ぶと 501 が返る。
+OpenAPI 上の 16 operation はすべて実装済み。
 
 ## 構成
 
