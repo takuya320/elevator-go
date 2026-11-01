@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": "22"
+  },
   "scripts": {
     "dev": "vite",
     "clean": "find ../internal/interface/http/server/webdist -depth -mindepth 1 ! -name .gitignore -delete",
@@ -23,5 +26,10 @@
     "openapi-typescript": "^7.13.0",
     "typescript": "^5.7.3",
     "vite": "^8.3.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "js-yaml": "^4.3.2"
+    }
   }
 }
