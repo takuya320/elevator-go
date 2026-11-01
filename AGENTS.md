@@ -7,9 +7,9 @@
 対象サービスは 1 つの product（エレベーターシミュレータ）で、backend（Go, `:8080`）と frontend（Vite + React, `web/`）から成る。標準コマンドは `CLAUDE.md`「主要コマンド」/ `README.md`/ `Makefile` を参照。
 
 ### ツールチェーンの前提（スナップショットに含まれる）
-- **Go 1.27** が必須（`go.mod` の `go 1.27.3`）。ベースイメージの `go` は 1.22 なので、Go 1.27 を `/usr/local/bin/go` に配置してある。`GOTOOLCHAIN=auto` のままだと `go` がネットワーク越しに 1.27 toolchain を落とそうとして失敗する環境なので、ローカルに 1.27 本体があることが前提（`go version` が `go1.27.x` を返せば OK）。
+- **Go** は `go.mod` の `go` 行が要求するバージョンが必須。ベースイメージの `go` は古いので、要求バージョンの Go 本体を `/usr/local/bin/go` に配置してある。`GOTOOLCHAIN=auto` のままだと `go` がネットワーク越しに toolchain を落とそうとして失敗する環境なので、ローカルに要求バージョン以上の Go があることが前提（`go version` が `go.mod` の要求以上を返せば OK）。
 - **golangci-lint v2**（`/usr/local/bin/golangci-lint`）を導入済み。設定は `.golangci.yml`（v2 形式）。
-- **Node 22 / pnpm**（`packageManager: pnpm@10.33.2`、corepack 経由）。
+- **Node / pnpm** のバージョンは `.github/workflows/ci.yml` と `web/package.json` の `packageManager` に従う（pnpm は corepack 経由）。
 
 ### 起動・確認の非自明な点
 - backend は API と UI を **同一 :8080** で配信する。`go run .` の前に **`cd web && pnpm run build`** を一度実行しておかないと実際の React 画面は出ない。未ビルド時（`webdist/index.html` 不在）は `static.go` が `notBuiltHTML`（「UI 未ビルド」の案内 HTML）を返す。build 出力先 `internal/interface/http/server/webdist/` は git 管理対象外で、リポジトリには `.gitignore` のみ追跡されている（コミット済みの placeholder `index.html` は存在しない）。
