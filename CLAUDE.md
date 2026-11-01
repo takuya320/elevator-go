@@ -67,6 +67,16 @@ elevator-go/
 - TypeScript 型は **`docs/openapi.yaml` から `openapi-typescript` で生成**（`web/src/api/schema.d.ts`、git 管理外）。`web/src/types.ts` は再 export のみ、API 呼び出しは `openapi-fetch` 経由で path/body/response が型安全。
 - 仕様変更フロー: `docs/openapi.yaml` → `go generate ./...`（Go 側）+ `pnpm run build`（フロント側、build 内で `gen:api` が自動実行）
 
+## 開発規約
+
+個人プロジェクトなので、外部コントリビュータ向けではなく一貫性のための規約。
+
+- **ブランチ**: `main` への変更は PR 経由。`<type>/<short-description>`（例: `feat/hall-call-reassignment`）で、`type` はコミット type と揃える。
+- **コミット**: Conventional Commits（`feat` / `fix` / `docs` / `test` / `refactor` / `chore` / `ci` / `build`）。件名は日本語、72 文字程度まで。本文は WHY を書く（WHAT は diff が示す）。1 コミット 1 目的。
+- **PR**: 1 PR 1 目的。タイトルはコミット件名と同じ形式。本文は `.github/pull_request_template.md` に従う。CI（`ci.yml`）が通ってからマージする。
+- **GitHub Actions**: commit SHA で固定し、末尾にバージョンをコメントで残す（更新は dependabot）。
+- **脆弱性報告**: `SECURITY.md` を参照。
+
 ## 一次ソース
 
 | 内容 | 場所 |
