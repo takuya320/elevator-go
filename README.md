@@ -8,6 +8,8 @@
 
 ## 動かす
 
+必要なもの: Go と Node.js / pnpm（バージョンは `go.mod` と `web/package.json` を参照）。
+
 ```bash
 cd web && pnpm install && pnpm run build && cd ..  # 初回のみ
 go run .
@@ -16,55 +18,17 @@ go run .
 `:8080` で立ち上がる。UI は `/`、Swagger UI は `/docs`。
 auto-tick の goroutine が裏で回っていて、既定で 1 秒ごとに状態が進む。
 
-主な環境変数:
+環境変数で挙動を変えられる。例えば `FLOOR_MIN=-2 FLOOR_MAX=20 ELEVATOR_COUNT=4 go run .` なら地下 2 階〜20 階の 4 号機構成になる。
 
-| 変数                      | 既定       | 用途                                                                |
-| ------------------------- | ---------- | ------------------------------------------------------------------- |
-| `ADDR`                    | `:8080`    | リッスンアドレス                                                    |
-| `TICK_INTERVAL_MS`        | `1000`     | auto-tick の間隔                                                    |
-| `FLOOR_MIN` / `FLOOR_MAX` | `1` / `10` | 階数範囲（地下は負値）                                              |
-| `ELEVATOR_COUNT`          | `2`        | 号機台数                                                            |
-| `LOG_FORMAT`              | `text`     | `json` で構造化ログ                                                 |
-| `LOG_DEBUG`               | unset      | セットすると DEBUG レベル                                           |
-| `CORS_ALLOWED_ORIGINS`    | unset      | frontend を別オリジンに置くときに許可 Origin をカンマ区切りで列挙。`*` で全許可。空なら CORS 無効 |
-
-例えば `FLOOR_MIN=-2 FLOOR_MAX=20 ELEVATOR_COUNT=4 go run .` で地下 2 階〜20 階の 4 号機構成になる。
-
-## Docker
-
-frontend と backend を独立してスケール・デプロイできるように 2 イメージに分けてある。
-
-```bash
-docker compose up -d --build      # build + 起動
-open http://localhost:5173        # UI（nginx 配信）
-curl http://localhost:8080/...    # backend を直接叩く
-docker compose down               # 停止
-```
-
-- **backend** (`Dockerfile.backend`) … Go 静的バイナリを distroless で配信。UI 資産は持たない。`CORS_ALLOWED_ORIGINS` を env で渡す。
-- **frontend** (`Dockerfile.frontend`) … Vite build を `nginx:alpine` で静的配信。`ARG VITE_API_BASE` で backend オリジンを build 時に bundle へ焼き込む。指定なしなら `/`（同一オリジン）にフォールバック。
-- 別ホストへ frontend を撒くときは `docker build --build-arg VITE_API_BASE=https://api.example.com -f Dockerfile.frontend .` の要領で URL を差し替え、backend 側の `CORS_ALLOWED_ORIGINS` にそのオリジンを足す。
-
-## API
-
-エンドポイントは OpenAPI 仕様（[docs/openapi.yaml](docs/openapi.yaml)）が一次ソース。Swagger UI でブラウズするのが手っ取り早い。動いているのは以下:
-
-- `GET /` … React UI（embed 済み）
-- `GET /events` … SSE。接続直後に現在状態、以降は tick ごとに全エレベーターの状態
-- `GET /floors/{floor}/elevators` … その階から見えるエレベーター
-- `POST /floors/{floor}/hall-calls` … ホール呼び
-- `POST /elevators/{elevatorId}/car-calls` … かご内行先
-- `POST /elevators/{elevatorId}/doors/open` ・ `.../doors/close` … ドアの開閉
-- `POST /elevators/{elevatorId}/stop` ・ `.../resume` … 運転停止・再開
-- `PATCH /elevators/{elevatorId}` … 状態の手動更新（ホーム階・自動帰還の切替を含む）
-- `DELETE /hall-calls/{callId}` … ホール呼びのキャンセル
-- `GET /elevators` ・ `GET /elevators/{elevatorId}` … 号機の一覧・詳細
-- `POST /elevators` … 号機を追加（次の配車から候補に入る）
-- `GET /hall-calls` ・ `GET /floors/{floor}/hall-calls` … ホール呼びの横断検索・階別一覧
-- `POST /simulation/tick` … 手動で 1 tick 進める
-- `POST /simulation/reset` … リセット
-
-OpenAPI 上の 16 operation はすべて実装済み。
+| 変数                      | 既定       | 用途                                                       |
+| ------------------------- | ---------- | ---------------------------------------------------------- |
+| `ADDR`                    | `:8080`    | リッスンアドレス                                           |
+| `TICK_INTERVAL_MS`        | `1000`     | auto-tick の間隔                                           |
+| `FLOOR_MIN` / `FLOOR_MAX` | `1` / `10` | 階数範囲（地下は負値）                                     |
+| `ELEVATOR_COUNT`          | `2`        | 号機台数                                                   |
+| `LOG_FORMAT`              | `text`     | `json` で構造化ログ                                        |
+| `LOG_DEBUG`               | unset      | セットすると DEBUG レベル                                  |
+| `CORS_ALLOWED_ORIGINS`    | unset      | 許可 Origin のカンマ区切り（`*` で全許可、空なら CORS 無効） |
 
 ## 構成
 
@@ -89,15 +53,43 @@ interface/http  →  usecase  →  domain
 - [docs/test-cases.md](docs/test-cases.md) … テストケース
 - [docs/api.md](docs/api.md) … API 解説
 
+## API
+
+エンドポイントの一次ソースは OpenAPI 仕様（[docs/openapi.yaml](docs/openapi.yaml)）。Swagger UI（`/docs`）でブラウズするのが手っ取り早い。
+
+```bash
+curl -X POST localhost:8080/floors/1/hall-calls -H 'Content-Type: application/json' -d '{"direction":"up"}'  # ホール呼び
+curl localhost:8080/elevators                                                                                 # 号機の一覧
+curl -N localhost:8080/events                                                                                 # SSE で状態を購読
+```
+
+操作の種類は、ホール呼び・かご内行先・ドア開閉・運転停止/再開・号機の追加と状態更新・手動 tick・リセット。詳しくは [docs/api.md](docs/api.md) を参照。
+
+## Docker
+
+frontend と backend を別イメージに分けてあり、`compose.yaml` でまとめて起動できる。
+
+```bash
+docker compose up -d --build      # build + 起動
+open http://localhost:5173        # UI（nginx 配信）
+docker compose down               # 停止
+```
+
+- **backend** (`Dockerfile.backend`) … Go 静的バイナリを distroless で配信。UI 資産は持たない。`CORS_ALLOWED_ORIGINS` を env で渡す。
+- **frontend** (`Dockerfile.frontend`) … Vite build を `nginx:alpine` で静的配信。`ARG VITE_API_BASE` で backend オリジンを build 時に bundle へ焼き込む。指定なしなら `/`（同一オリジン）にフォールバック。
+- frontend を別オリジンに置くときは `--build-arg VITE_API_BASE=https://api.example.com` で URL を差し替え、backend 側の `CORS_ALLOWED_ORIGINS` にそのオリジンを足す。
+
 ## 開発
 
 ```bash
-go build ./...
-go vet ./...
-go test ./...
+make check    # go build + go vet + go test
+make lint     # golangci-lint
+make help     # その他のターゲット
 ```
 
-OpenAPI を編集したら `go generate ./...` で `internal/interface/http/oapi/api.gen.go` を再生成する。新規エンドポイントは `server.Handler` が `oapi.Unimplemented` を埋め込んでいるので、対応メソッドをオーバーライドして UseCase を呼べばいい。ドメイン sentinel から HTTP コードへの変換は `internal/interface/http/server/errors.go` の `errorMapping` 一箇所に集約してあるので、ハンドラ側に switch を散らさない。
+- OpenAPI（`docs/openapi.yaml`）を編集したら `go generate ./...` で `internal/interface/http/oapi/api.gen.go` を再生成する。
+- `server.Handler` は `oapi.Unimplemented` を埋め込んでいない。operation を足すと、ハンドラを実装するまでコンパイルが通らない（実装漏れをコンパイラで検出するため）。
+- ドメインのエラーから HTTP ステータスへの変換は `internal/interface/http/server/errors.go` の `errorMapping` に集約している。ハンドラ側に switch を散らさない。
 
 フロントは `web/` 配下:
 
