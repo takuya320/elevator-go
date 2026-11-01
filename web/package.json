@@ -26,5 +26,10 @@
     "openapi-typescript": "^7.13.0",
     "typescript": "^5.7.3",
     "vite": "^8.3.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "js-yaml": "^4.3.2"
+    }
   }
 }
