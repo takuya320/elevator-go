@@ -7,7 +7,7 @@
 対象サービスは 1 つの product（エレベーターシミュレータ）で、backend（Go, `:8080`）と frontend（Vite + React, `web/`）から成る。標準コマンドは `CLAUDE.md`「主要コマンド」/ `README.md`/ `Makefile` を参照。
 
 ### ツールチェーンの前提（スナップショットに含まれる）
-- **Go 1.25** が必須（`go.mod` の `go 1.25`）。ベースイメージの `go` は 1.22 なので、Go 1.25 を `/usr/local/bin/go` に配置してある。`GOTOOLCHAIN=auto` のままだと `go` がネットワーク越しに 1.25 toolchain を落とそうとして失敗する環境なので、ローカルに 1.25 本体があることが前提（`go version` が `go1.25.x` を返せば OK）。
+- **Go 1.27** が必須（`go.mod` の `go 1.27.3`）。ベースイメージの `go` は 1.22 なので、Go 1.27 を `/usr/local/bin/go` に配置してある。`GOTOOLCHAIN=auto` のままだと `go` がネットワーク越しに 1.27 toolchain を落とそうとして失敗する環境なので、ローカルに 1.27 本体があることが前提（`go version` が `go1.27.x` を返せば OK）。
 - **golangci-lint v2**（`/usr/local/bin/golangci-lint`）を導入済み。設定は `.golangci.yml`（v2 形式）。
 - **Node 22 / pnpm**（`packageManager: pnpm@10.33.2`、corepack 経由）。
 

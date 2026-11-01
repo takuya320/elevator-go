@@ -1,6 +1,6 @@
 module elevator-go
 
-go 1.25.0
+go 1.27.3
 
 require (
 	github.com/getkin/kin-openapi v0.151.0
